@@ -28,7 +28,7 @@ QString getVersion() {
 }
 
 QString getBrand() {
-  return QObject::tr("StarPilot");
+  return QObject::tr("CompassPilot");
 }
 
 QString getStarPilotDisplayVersion() {

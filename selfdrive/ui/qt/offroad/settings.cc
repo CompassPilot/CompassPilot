@@ -749,7 +749,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
   QObject::connect(toggles, &TogglesPanel::simpleModeChanged, [this](bool enabled) {
     updateDeveloperToggle(params.getInt("TuningLevel"));
     if (enabled && panel_widget->currentIndex() < nav_btns->buttons().size() &&
-        nav_btns->buttons()[panel_widget->currentIndex()]->text() == tr("StarPilot")) {
+        nav_btns->buttons()[panel_widget->currentIndex()]->text() == tr("CompassPilot")) {
       setCurrentPanel(2);
     }
   });
@@ -760,12 +760,13 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
     {tr("Toggles"), toggles},
     {tr("Software"), new SoftwarePanel(this)},
     {tr("Developer"), developerPanel},
-    {tr("StarPilot"), starpilotSettingsWindow},
+    {tr("CompassPilot"), starpilotSettingsWindow},
   };
 
   nav_btns = new QButtonGroup(this);
   for (auto &[name, panel] : panels) {
     QPushButton *btn = new QPushButton(name);
+    btn->setObjectName(name == tr("CompassPilot") ? "compassPilotNavButton" : "");
     btn->setCheckable(true);
     btn->setChecked(nav_btns->buttons().size() == 0);
     btn->setStyleSheet(R"(
@@ -775,6 +776,9 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
         background: none;
         font-size: 65px;
         font-weight: 500;
+      }
+      QPushButton#compassPilotNavButton {
+        font-size: 50px;
       }
       QPushButton:checked {
         color: white;
@@ -890,7 +894,7 @@ void SettingsWindow::updateDeveloperToggle(int tuningLevel) {
   for (QAbstractButton *btn : nav_btns->buttons()) {
     if (btn->text() == tr("Developer")) {
       btn->setVisible(tuningLevel >= 3 || params.getBool("ShowAllToggles"));
-    } else if (btn->text() == tr("StarPilot")) {
+    } else if (btn->text() == tr("CompassPilot")) {
       btn->setVisible(!params.getBool("SimpleMode"));
     }
   }
