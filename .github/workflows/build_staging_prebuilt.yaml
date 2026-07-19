@@ -1,0 +1,128 @@
+name: Build Staging Prebuilt
+
+# Development happens on dev and dev-a. Only promoted source branches publish
+# generated prebuilts: stg-src to stg and stg-a-src to stg-a.
+on:
+  push:
+    branches:
+      - stg-src
+      - stg-a-src
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-staging-prebuilt-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  GIT_EMAIL: "168790843+firestar5683@users.noreply.github.com"
+  GIT_NAME: "StarPilot Build Bot"
+
+jobs:
+  build_and_publish:
+    runs-on: [self-hosted, truenas, starpilot-build]
+    timeout-minutes: 720
+    steps:
+      - name: Set source and output branches
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "${GITHUB_REF_NAME}" in
+            stg-src|stg-a-src) ;;
+            *)
+              echo "Unsupported source branch: ${GITHUB_REF_NAME}" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "SOURCE_BRANCH=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          echo "OUTPUT_BRANCH=${GITHUB_REF_NAME%-src}" >> "$GITHUB_ENV"
+
+      - name: Checkout source commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Configure git identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "$GIT_NAME"
+          git config user.email "$GIT_EMAIL"
+          git config http.postBuffer 104857600
+
+      - name: Record source commit
+        shell: bash
+        run: echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Link persistent sysroot
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .comma_sysroot
+          ln -s /runner/sysroots/default .comma_sysroot
+
+      - name: Run StarPilot device build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export COMMA_HOST_ROOT_DIR="/mnt/Apparition/My_App_Data/starpilot-runner/_work/${GITHUB_REPOSITORY#*/}/${GITHUB_REPOSITORY#*/}"
+          export COMMA_HOST_SYSROOT_DIR="/mnt/Apparition/My_App_Data/starpilot-runner/sysroots/default"
+          export COMMA_HOST_CACHE_DIR="/mnt/Apparition/My_App_Data/starpilot-runner/cache/work"
+          export COMMA_HOST_VENV_DIR="/mnt/Apparition/My_App_Data/starpilot-runner/cache/venv-linux-arm64"
+          export COMMA_SYSROOT_DIR="/runner/sysroots/default"
+
+          ./build 12
+
+      - name: Validate build output
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f prebuilt
+
+          if grep -rlIE --exclude-dir=.git '^version https://git-lfs\.github\.com/spec/v1' . > /tmp/lfs_ptrs.txt; then
+            echo "LFS pointer stubs found in build output:" >&2
+            cat /tmp/lfs_ptrs.txt >&2
+            exit 1
+          fi
+
+          if find . -path ./.git -prune -o -type f -size +99M -print | grep -q .; then
+            echo "Files larger than 99 MB found in build output:" >&2
+            find . -path ./.git -prune -o -type f -size +99M -print >&2
+            exit 1
+          fi
+
+      - name: Commit build output
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git add -u
+          git commit --allow-empty -m "build" \
+            -m "source branch: ${SOURCE_BRANCH}" \
+            -m "source commit: ${SOURCE_SHA}"
+
+      - name: Publish prebuilt branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          remote_sha="$(git ls-remote --heads origin "refs/heads/${OUTPUT_BRANCH}" | awk '{print $1}')"
+          if [[ -n "$remote_sha" ]]; then
+            git push --force-with-lease="refs/heads/${OUTPUT_BRANCH}:${remote_sha}" \
+              origin "HEAD:refs/heads/${OUTPUT_BRANCH}"
+          else
+            git push origin "HEAD:refs/heads/${OUTPUT_BRANCH}"
+          fi
+
+          {
+            echo "### Staging prebuilt published"
+            echo "- Source: \`${SOURCE_BRANCH}\` at \`${SOURCE_SHA}\`"
+            echo "- Output: \`${OUTPUT_BRANCH}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
