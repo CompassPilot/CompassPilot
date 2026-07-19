@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import unittest
-
 from opendbc.car.structs import CarParams
 from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
 from opendbc.safety.tests.common import CANPackerSafety
 from opendbc.car.rivian.values import RivianSafetyFlags
 from opendbc.car.rivian.riviancan import checksum as _checksum
+from opendbc.safety import ALTERNATIVE_EXPERIENCE
 
 
 def checksum(msg):
@@ -18,18 +18,20 @@ def checksum(msg):
     ret[0] = _checksum(ret[1:], 0x1D, 0xB1)
   elif addr == 0x150:
     ret[0] = _checksum(ret[1:], 0x1D, 0x9A)
+  elif addr == 0x162:
+    ret[0] = _checksum(ret[1:], 0x1D, 0xD1)
 
   return addr, ret, bus
 
 
-class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest, common.LongitudinalAccelSafetyTest,
-                           common.VehicleSpeedSafetyTest):
+class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest, common.SteerRequestCutSafetyTest,
+                           common.LongitudinalAccelSafetyTest, common.VehicleSpeedSafetyTest):
 
   TX_MSGS = [[0x120, 0], [0x321, 2], [0x162, 2]]
   RELAY_MALFUNCTION_ADDRS = {0: (0x120,), 2: (0x321, 0x162)}
   FWD_BLACKLISTED_ADDRS = {0: [0x321, 0x162], 2: [0x120]}
 
-  MAX_TORQUE_LOOKUP = [9, 17], [350, 250]
+  MAX_TORQUE_LOOKUP = [9, 25, 27], [385, 295, 275]
   DYNAMIC_MAX_TORQUE = True
   MAX_RATE_UP = 3
   MAX_RATE_DOWN = 5
@@ -38,6 +40,8 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
 
   DRIVER_TORQUE_ALLOWANCE = 100
   DRIVER_TORQUE_FACTOR = 2
+  MIN_VALID_STEERING_FRAMES = 89
+  MAX_INVALID_STEERING_FRAMES = 2
 
   cnt_speed = 0
   cnt_speed_2 = 0
@@ -109,7 +113,6 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
         self.assertFalse(self._rx(msg))
         self.assertFalse(self.safety.get_controls_allowed())
 
-
 class TestRivianStockSafety(TestRivianSafetyBase):
 
   LONGITUDINAL = False
@@ -140,6 +143,142 @@ class TestRivianLongitudinalSafety(TestRivianSafetyBase):
     self.safety = libsafety_py.libsafety
     self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, RivianSafetyFlags.LONG_CONTROL)
     self.safety.init_tests()
+
+
+class TestRivianMADSSafety(unittest.TestCase):
+  TX_MSGS = []
+
+  def setUp(self):
+    self.packer = CANPackerSafety("rivian_primary_actuator")
+    self.safety = libsafety_py.libsafety
+    self.cnt_adas = 0
+    self.cnt_prop = 0
+
+  def _set_mode(self, brake_remains_active=False):
+    flags = RivianSafetyFlags.MADS_LATERAL
+    if brake_remains_active:
+      flags |= RivianSafetyFlags.MADS_BRAKE_REMAINS_ACTIVE
+    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, flags)
+    self.safety.init_tests()
+    self.safety.set_alternative_experience(ALTERNATIVE_EXPERIENCE.ALWAYS_ON_LATERAL)
+    self.cnt_adas = 0
+    self.cnt_prop = 0
+
+  def _rx(self, msg):
+    return self.safety.safety_rx_hook(msg)
+
+  def _stalk_msg(self, request, *, counter=None, bus=0):
+    if counter is None:
+      counter = self.cnt_adas % 15
+      self.cnt_adas += 1
+    values = {"VDM_UserAdasRequest": request, "VDM_AdasStatus_Counter": counter}
+    return self.packer.make_can_msg_safety("VDM_AdasSts", bus, values, fix_checksum=checksum)
+
+  def _gear_msg(self, gear):
+    values = {
+      "VDM_Prndl_Status": gear,
+      "VDM_PropStatus_Counter": self.cnt_prop % 15,
+      "VDM_VehicleSpeedQ": 1,
+    }
+    self.cnt_prop += 1
+    return self.packer.make_can_msg_safety("VDM_PropStatus", 0, values, fix_checksum=checksum)
+
+  def _acc_msg(self, enabled):
+    values = {"ACM_FeatureStatus": 1 if enabled else 0, "ACM_Unkown1": 1}
+    return self.packer.make_can_msg_safety("ACM_Status", 2, values)
+
+  def _brake_msg(self, pressed):
+    return self.packer.make_can_msg_safety("iBESP2", 0, {"iBESP2_BrakePedalApplied": pressed})
+
+  def test_initial_state_and_half_up_toggle(self):
+    self._set_mode()
+    self.assertFalse(self.safety.get_lkas_on())
+    self.assertFalse(self.safety.get_aol_allowed())
+
+    self.assertTrue(self._rx(self._stalk_msg(1)))
+    self.assertFalse(self.safety.get_lkas_on())
+    self.assertTrue(self._rx(self._acc_msg(False)))
+    self.assertTrue(self.safety.get_lkas_on())
+    self.assertTrue(self.safety.get_aol_allowed())
+    self.assertTrue(self._rx(self._stalk_msg(0)))
+
+    self.assertTrue(self._rx(self._stalk_msg(1)))
+    self.assertTrue(self._rx(self._acc_msg(False)))
+    self.assertTrue(self._rx(self._stalk_msg(0)))
+    self.assertFalse(self.safety.get_lkas_on())
+
+  def test_full_up_cancels_pending_half_up_and_clears_lateral(self):
+    self._set_mode()
+    self.assertTrue(self._rx(self._stalk_msg(1)))
+    self.assertTrue(self._rx(self._stalk_msg(2)))
+    self.assertFalse(self.safety.get_lkas_on())
+    self.assertTrue(self._rx(self._stalk_msg(0)))
+
+    self.assertTrue(self._rx(self._acc_msg(True)))
+    self.assertTrue(self.safety.get_lkas_on())
+    self.assertTrue(self._rx(self._stalk_msg(2)))
+    self.assertFalse(self.safety.get_lkas_on())
+
+  def test_acc_enables_lateral_and_cancel_preserves_it(self):
+    self._set_mode()
+    self.assertTrue(self._rx(self._acc_msg(True)))
+    self.assertTrue(self.safety.get_lkas_on())
+    self.assertTrue(self._rx(self._acc_msg(False)))
+    self.assertTrue(self.safety.get_lkas_on())
+
+    # UP_1 is the native ACC-cancel gesture and must not toggle MADS.
+    self.assertTrue(self._rx(self._acc_msg(True)))
+    self.assertTrue(self._rx(self._stalk_msg(1)))
+    self.assertTrue(self._rx(self._acc_msg(False)))
+    self.assertTrue(self._rx(self._stalk_msg(0)))
+    self.assertTrue(self.safety.get_lkas_on())
+
+  def test_non_drive_gears_clear_and_drive_does_not_reenable(self):
+    for gear in (0, 1, 2, 3):
+      self._set_mode(brake_remains_active=True)
+      self.assertTrue(self._rx(self._acc_msg(True)))
+      self.assertTrue(self.safety.get_lkas_on())
+      self.assertTrue(self._rx(self._gear_msg(gear)))
+      self.assertFalse(self.safety.get_lkas_on())
+      self.assertTrue(self._rx(self._gear_msg(4)))
+      self.assertFalse(self.safety.get_lkas_on())
+
+  def test_brake_behavior(self):
+    for brake_remains_active in (False, True):
+      self._set_mode(brake_remains_active)
+      self.assertTrue(self._rx(self._acc_msg(True)))
+      self.assertTrue(self._rx(self._brake_msg(True)))
+      self.assertEqual(self.safety.get_lkas_on(), brake_remains_active)
+      self.assertFalse(self.safety.get_controls_allowed())
+
+  def test_stalk_checksum_counter_and_bus_validation(self):
+    self._set_mode()
+    valid = self._stalk_msg(1)
+    valid[0].data[0] ^= 0xFF
+    self.assertFalse(self._rx(valid))
+    self.assertFalse(self.safety.get_lkas_on())
+
+    self._set_mode()
+    for i in range(common.MAX_WRONG_COUNTERS):
+      should_accept = i + 1 < common.MAX_WRONG_COUNTERS
+      self.assertEqual(self._rx(self._stalk_msg(0, counter=0)), should_accept)
+    self.assertFalse(self.safety.get_lkas_on())
+
+    self._set_mode()
+    self.assertTrue(self._rx(self._stalk_msg(1, bus=1)))
+    self.assertFalse(self.safety.get_lkas_on())
+
+  def test_mads_composes_with_rivian_harness_flags(self):
+    for harness_flags in (
+      RivianSafetyFlags(0),
+      RivianSafetyFlags.LONG_CONTROL,
+    ):
+      flags = RivianSafetyFlags.MADS_LATERAL | harness_flags
+      self.assertEqual(self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, flags), 0)
+      self.safety.init_tests()
+      self.safety.set_alternative_experience(ALTERNATIVE_EXPERIENCE.ALWAYS_ON_LATERAL)
+      self.assertTrue(self._rx(self._acc_msg(True)))
+      self.assertTrue(self.safety.get_lkas_on())
 
 
 if __name__ == "__main__":

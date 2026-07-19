@@ -59,6 +59,14 @@ bool get_controls_allowed(void){
   return controls_allowed;
 }
 
+bool get_aol_allowed(void){
+  return aol_allowed;
+}
+
+bool get_lkas_on(void){
+  return lkas_on;
+}
+
 int get_alternative_experience(void){
   return alternative_experience;
 }

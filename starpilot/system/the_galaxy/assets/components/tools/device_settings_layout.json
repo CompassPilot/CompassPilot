@@ -133,6 +133,27 @@
         "settings_tier": "simple"
       },
       {
+        "key": "MADSMode",
+        "label": "MADS Mode",
+        "description": "Keep lane centering active after cruise control disengages. Rivian vehicles can also toggle it with the slight-up drive-stalk position.",
+        "data_type": "bool",
+        "ui_type": "toggle",
+        "is_parent_toggle": true,
+        "favorite_eligible": false
+      },
+      {
+        "key": "MADSBrakeBehavior",
+        "label": "Brake Behavior",
+        "description": "Choose whether pressing the brake disengages MADS lateral control or leaves it active.",
+        "data_type": "int",
+        "ui_type": "dropdown",
+        "parent_key": "MADSMode",
+        "options": [
+          {"value": 0, "label": "Disengage MADS"},
+          {"value": 1, "label": "Remain Active"}
+        ]
+      },
+      {
         "key": "PauseAOLOnBrake",
         "label": "Pause on Brake Press Below",
         "description": "Pause \"Always On Lateral\" below the set speed while the brake pedal is pressed.",

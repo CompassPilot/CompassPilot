@@ -22,6 +22,7 @@ from opendbc.car.honda.values import CAR as HONDA, HONDA_BOSCH, HondaFlags, Hond
 from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.values import CAR as HYUNDAI, CANFD_CAR, HyundaiFlags, HyundaiStarPilotFlags, HyundaiStarPilotSafetyFlags, ALT_BUS_LDA_BUTTON_CARS
 from opendbc.car.mock.values import CAR as MOCK
+from opendbc.car.rivian.values import CAR as RIVIAN, RivianSafetyFlags
 from opendbc.car.subaru.values import CAR as SUBARU, SubaruSafetyFlags
 from opendbc.car.toyota.values import CAR as TOYOTA, NO_DSU_CAR, TSS2_CAR, UNSUPPORTED_DSU_CAR, ToyotaStarPilotFlags, ToyotaSafetyFlags
 from opendbc.car.values import PLATFORMS
@@ -254,6 +255,11 @@ class CarInterfaceBase(ABC):
         # LKASButtonControl == 9 means BUTTON_FUNCTIONS["AOL_TOGGLE"] in starpilot_variables.
         if params.get_bool("AlwaysOnLateral") and params.get_int("LKASButtonControl") == 9:
           fp_ret.safetyConfigs[-1].safetyParam |= HyundaiStarPilotSafetyFlags.AOL_LKAS_ON_ENGAGE.value
+      elif platform in RIVIAN:
+        if getattr(starpilot_toggles, "mads_mode", False):
+          fp_ret.safetyConfigs[-1].safetyParam |= RivianSafetyFlags.MADS_LATERAL.value
+          if getattr(starpilot_toggles, "mads_brake_behavior", 0) == 1:
+            fp_ret.safetyConfigs[-1].safetyParam |= RivianSafetyFlags.MADS_BRAKE_REMAINS_ACTIVE.value
       elif platform in TOYOTA:
         fp_ret.canUsePedal = not CP.autoResumeSng
         fp_ret.canUseSDSU = candidate not in UNSUPPORTED_DSU_CAR and candidate not in TSS2_CAR

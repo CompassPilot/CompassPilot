@@ -33,7 +33,8 @@ class RivianCarDocs(CarDocs):
 
 @dataclass
 class RivianPlatformConfig(PlatformConfig):
-  dbc_dict: DbcDict = field(default_factory=lambda: {Bus.pt: 'rivian_primary_actuator', Bus.radar: 'rivian_mando_front_radar_generated'})
+  dbc_dict: DbcDict = field(default_factory=lambda: {Bus.pt: 'rivian_primary_actuator', Bus.radar: 'rivian_mando_front_radar_generated',
+                                                     Bus.alt: 'rivian_park_assist_can'})
   wmis: set[WMI] = field(default_factory=set)
   lines: set[ModelLine] = field(default_factory=set)
   years: set[ModelYear] = field(default_factory=set)
@@ -105,18 +106,13 @@ GEAR_MAP = {
   4: structs.CarState.GearShifter.drive,
 }
 
-
 class CarControllerParams:
   # The R1T 2023 and R1S 2023 we tested on achieves slightly more lateral acceleration going left vs. right
   # and lateral acceleration falls linearly as speed decreases from 38 mph to 20 mph. These values are set
   # conservatively to reach a maximum of 3.0 m/s^2 turning left at 80 mph
-
-  # These refer to turning left:
-  # 250 is ~2.8 m/s^2 above 17 m/s, then linearly ramps to ~1.6 m/s^2 from 17 m/s to 9 m/s
-  # TODO: it is theorized older models have different steering racks and achieve down to half the
-  #  lateral acceleration referenced here at all speeds. detect this and ship a torque increase for those models
-  STEER_MAX = 250  # 350 is intended to maintain lateral accel, not increase it
-  STEER_MAX_LOOKUP = [9, 17], [350, 250]
+  # Increase available torque at low speed, then taper toward the highway limit.
+  STEER_MAX = 385
+  STEER_MAX_LOOKUP = [9, 13, 25, 27], [385, 350, 295, 275]
   STEER_STEP = 1
   STEER_DELTA_UP = 3  # torque increase per refresh
   STEER_DELTA_DOWN = 5  # torque decrease per refresh
@@ -133,6 +129,12 @@ class CarControllerParams:
 
 class RivianSafetyFlags(IntFlag):
   LONG_CONTROL = 1
+  MADS_LATERAL = 4
+  MADS_BRAKE_REMAINS_ACTIVE = 8
+
+
+class RivianFlags(IntFlag):
+  LONGITUDINAL_HARNESS = 2
 
 
 DBC = CAR.create_dbc_map()

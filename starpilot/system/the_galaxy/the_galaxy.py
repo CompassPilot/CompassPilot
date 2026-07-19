@@ -2408,6 +2408,8 @@ def _get_favorite_slot_options():
           continue
         if param_data.get("ui_type") != "toggle" or param_data.get("data_type") != "bool":
           continue
+        if param_data.get("favorite_eligible") is False:
+          continue
 
         seen.add(key)
         options.append({
@@ -4426,12 +4428,15 @@ def setup(app):
         }), 200
 
       # 1. Prevent changing the model or reboot-required toggles while the car is actively driving
-      reboot_keys = {"Model", "DrivingModel", "AlwaysOnLateral", "DisableOpenpilotLongitudinal", "ForceTorqueController", "NNFF", "NNFFLite"}
+      reboot_keys = {"Model", "DrivingModel", "AlwaysOnLateral", "MADSMode", "MADSBrakeBehavior",
+                     "DisableOpenpilotLongitudinal", "ForceTorqueController", "NNFF", "NNFFLite"}
       if key in reboot_keys and params.get_bool("IsOnroad"):
         friendly_names = {
           "Model": "Driving Model",
           "DrivingModel": "Driving Model",
           "AlwaysOnLateral": "Always On Lateral",
+          "MADSMode": "MADS Mode",
+          "MADSBrakeBehavior": "MADS Brake Behavior",
           "DisableOpenpilotLongitudinal": "Disable openpilot Longitudinal",
           "ForceTorqueController": "Force Torque Controller",
           "NNFF": "NNFF",
@@ -4450,6 +4455,36 @@ def setup(app):
         return jsonify({"error": "Cannot flash Panda firmware while driving."}), 403
       if key in PANDA_FIRMWARE_TOGGLE_KEYS and data.get(PANDA_FIRMWARE_CONFIRMATION_FIELD) is not True:
         return jsonify({"error": "Panda firmware changes require confirmation before flashing."}), 409
+
+      if key in {"AlwaysOnLateral", "MADSMode"}:
+        enabled = str_val.strip() in ("1", "true", "True")
+        params.put_bool(key, enabled)
+        updated = {key: enabled}
+        if enabled:
+          other_key = "AlwaysOnLateral" if key == "MADSMode" else "MADSMode"
+          params.put_bool(other_key, False)
+          updated[other_key] = False
+
+        update_starpilot_toggles()
+        return jsonify({
+          "message": f"Parameter '{key}' updated successfully. A reboot is required.",
+          "updated": updated,
+        }), 200
+
+      if key == "MADSBrakeBehavior":
+        try:
+          brake_behavior = int(str_val)
+        except (TypeError, ValueError):
+          return jsonify({"error": "MADS brake behavior must be 0 or 1."}), 400
+        if brake_behavior not in (0, 1):
+          return jsonify({"error": "MADS brake behavior must be 0 or 1."}), 400
+
+        params.put_int(key, brake_behavior)
+        update_starpilot_toggles()
+        return jsonify({
+          "message": "MADS brake behavior updated successfully. A reboot is required.",
+          "updated": {key: brake_behavior},
+        }), 200
 
       if key in {"LeadIndicator", "HideLeadMarker"}:
         enabled = str_val.strip() in ("1", "true", "True")

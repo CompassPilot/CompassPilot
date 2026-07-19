@@ -597,6 +597,12 @@ def get_vehicle_min_accel(CP, v_ego):
 def get_planner_v_ego(CP, car_state):
   v_ego = max(car_state.vEgo, car_state.vEgoCluster)
 
+  is_rivian = getattr(CP, "carName", "") == "rivian" or getattr(CP, "brand", "") == "rivian"
+  if is_rivian:
+    # Rivian radar lead velocity is based on the physical vehicle speed. Keep the
+    # planner in that same reference frame when the cluster speed runs high.
+    return float(car_state.vEgo)
+
   is_gm = getattr(CP, "carName", "") == "gm" or getattr(CP, "brand", "") == "gm"
   if is_gm and getattr(CP, "enableGasInterceptorDEPRECATED", False):
     try:

@@ -18,6 +18,11 @@ MOVING_STOP_FOLLOW_MIN_GAP = 0.25
 NEGATIVE_TARGET_CREEP_GUARD_SPEED = 0.35
 NEGATIVE_TARGET_CREEP_GUARD_DECEL = 0.40
 MODE_TRANSITION_MAX_DECEL = 4.0
+RIVIAN_FINAL_STOP_MAX_SPEED = 1.25
+RIVIAN_FINAL_STOP_ENTRY_ACCEL = -0.40
+RIVIAN_FINAL_STOP_HOLD_ACCEL_LIMIT = -0.20
+RIVIAN_FINAL_STOP_FULL_SOFTEN_TARGET = -0.50
+RIVIAN_FINAL_STOP_NO_SOFTEN_TARGET = -0.60
 
 LongCtrlState = car.CarControl.Actuators.LongControlState
 
@@ -126,6 +131,9 @@ class LongControl:
     self.last_output_accel = 0.0
     self.stop_release_counter = 0
     self.vehicle_tuning = LongControlVehicleTuning(CP)
+    self.is_rivian = bool(
+      getattr(CP, "brand", "") == "rivian" or getattr(CP, "carName", "") == "rivian"
+    )
 
   def update_mpc_mode(self, experimental_mode):
     new_mode = 'blended' if experimental_mode else 'acc'
@@ -199,6 +207,30 @@ class LongControl:
 
     follow_step = interp(CS.vEgo, [follow_min_speed, 3.0, 6.0, 10.0], [0.02, 0.03, 0.05, 0.07])
     return max(float(a_target), output_accel - float(follow_step))
+
+  def _apply_rivian_final_stop_softening(self, output_accel, a_target, should_stop, has_lead, CS, starpilot_toggles):
+    if not self.is_rivian or not has_lead or CS.brakePressed:
+      return output_accel
+    if output_accel >= 0.0 or CS.vEgo > RIVIAN_FINAL_STOP_MAX_SPEED:
+      return output_accel
+    if a_target >= 0.0 and not should_stop:
+      return output_accel
+    if a_target <= RIVIAN_FINAL_STOP_NO_SOFTEN_TARGET:
+      return output_accel
+
+    # Rivian can retain a stronger PID command into the stopping state, producing
+    # a sharp final brake application. Below 2.8 mph, converge toward its normal
+    # standstill hold request while preserving stronger/urgent planner targets.
+    hold_accel = min(float(starpilot_toggles.stopAccel), RIVIAN_FINAL_STOP_HOLD_ACCEL_LIMIT)
+    entry_accel = min(hold_accel, RIVIAN_FINAL_STOP_ENTRY_ACCEL)
+    accel_floor = float(interp(max(CS.vEgo, 0.0),
+                               [0.0, RIVIAN_FINAL_STOP_MAX_SPEED],
+                               [hold_accel, entry_accel]))
+    softened_accel = max(float(output_accel), accel_floor)
+    soften_strength = float(interp(a_target,
+                                   [RIVIAN_FINAL_STOP_NO_SOFTEN_TARGET, RIVIAN_FINAL_STOP_FULL_SOFTEN_TARGET],
+                                   [0.0, 1.0]))
+    return float(output_accel + (softened_accel - output_accel) * soften_strength)
 
   def _trim_positive_overshoot_integrator(self, a_target, error, CS):
     if self.pid.i <= 0.0:
@@ -305,6 +337,11 @@ class LongControl:
           output_accel = raw_output_accel
       else:
         output_accel = raw_output_accel
+
+    if self.long_control_state in (LongCtrlState.pid, LongCtrlState.stopping):
+      output_accel = self._apply_rivian_final_stop_softening(
+        output_accel, a_target, should_stop, has_lead, CS, starpilot_toggles,
+      )
 
     self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
     return self.last_output_accel

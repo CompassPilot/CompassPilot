@@ -60,6 +60,7 @@ class StarPilotCard:
     self.pause_longitudinal = False
     self.switchback_mode_enabled = self.params_memory.get_bool("SwitchbackModeEnabled")
     self.traffic_mode_enabled = False
+    self._rivian_acc_enabled = False
 
     self.gap_counter = 0
     self.cancel_counter = 0
@@ -75,6 +76,9 @@ class StarPilotCard:
     self.error_log = ERROR_LOGS_PATH / "error.txt"
 
   def handle_button_event(self, key, sm, starpilot_toggles):
+    # Rivian keeps ACC enabled while accelerator override temporarily pauses longActive.
+    traffic_mode_allowed = self._rivian_acc_enabled if self.CP.brand == "rivian" else sm["carControl"].longActive
+
     if sm["carControl"].longActive and getattr(starpilot_toggles, f"experimental_mode_via_{key}"):
       self.handle_experimental_mode(sm, starpilot_toggles)
     elif getattr(starpilot_toggles, f"bookmark_via_{key}"):
@@ -88,7 +92,7 @@ class StarPilotCard:
     elif getattr(starpilot_toggles, f"switchback_mode_via_{key}"):
       self.switchback_mode_enabled = not self.switchback_mode_enabled
       self.params_memory.put_bool("SwitchbackModeEnabled", self.switchback_mode_enabled)
-    elif sm["carControl"].longActive and getattr(starpilot_toggles, f"traffic_mode_via_{key}"):
+    elif traffic_mode_allowed and getattr(starpilot_toggles, f"traffic_mode_via_{key}"):
       self.traffic_mode_enabled = not self.traffic_mode_enabled
     else:
       for slot_index in range(3):
@@ -119,9 +123,13 @@ class StarPilotCard:
 
   def update(self, carState, starpilotCarState, sm, starpilot_toggles):
     self.switchback_mode_enabled = self.params_memory.get_bool("SwitchbackModeEnabled")
+    self._rivian_acc_enabled = self.CP.brand == "rivian" and carState.cruiseState.enabled
     button_event_types = [self._button_type_raw(be) for be in carState.buttonEvents]
+    mads_mode = getattr(starpilot_toggles, "mads_mode", False)
+    rivian_mads_stalk = mads_mode and self.CP.brand == "rivian"
     button_aol_supported = self.CP.brand == "hyundai" or starpilot_toggles.lkas_allowed_for_aol
-    button_managed_aol = starpilot_toggles.always_on_lateral_lkas or (button_aol_supported and starpilot_toggles.main_cruise_aol_toggle)
+    button_managed_aol = (mads_mode or starpilot_toggles.always_on_lateral_lkas or
+                          (button_aol_supported and starpilot_toggles.main_cruise_aol_toggle))
     hyundai_main_cruise_aol_managed = self.CP.brand == "hyundai" and starpilot_toggles.main_cruise_aol_toggle
 
     if carState.gearShifter in NON_DRIVING_GEARS or not hyundai_main_cruise_aol_managed:
@@ -137,7 +145,26 @@ class StarPilotCard:
       elif sm["selfdriveState"].active or carState.cruiseState.enabled:
         self.hyundai_aol_ready = True
 
-    if button_aol_supported:
+    if mads_mode:
+      # A normal lateral or cruise engagement enables MADS. Disengaging cruise
+      # does not clear the drive-scoped lateral latch.
+      if ((carState.cruiseState.enabled and not self.prev_cruise_enabled) or
+          (sm["selfdriveState"].active and not self.prev_active)):
+        self.always_on_lateral_allowed = True
+
+      if rivian_mads_stalk:
+        for be, be_type in zip(carState.buttonEvents, button_event_types, strict=False):
+          if be.pressed and be_type == ButtonType.lkas and not (carState.cruiseState.enabled or self.prev_cruise_enabled):
+            self.always_on_lateral_allowed = not self.always_on_lateral_allowed
+
+      rivian_full_up_pressed = rivian_mads_stalk and any(
+        be.pressed and be_type == ButtonType.altButton2
+        for be, be_type in zip(carState.buttonEvents, button_event_types, strict=False)
+      )
+      disengage_on_brake = getattr(starpilot_toggles, "mads_brake_behavior", 0) == 0
+      if rivian_full_up_pressed or carState.gearShifter in NON_DRIVING_GEARS or (disengage_on_brake and carState.brakePressed):
+        self.always_on_lateral_allowed = False
+    elif button_aol_supported:
       for be, be_type in zip(carState.buttonEvents, button_event_types, strict=False):
         if be_type == ButtonType.lkas and be.pressed and starpilot_toggles.always_on_lateral_lkas:
           self.main_cruise_aol_pending = False
@@ -187,7 +214,8 @@ class StarPilotCard:
 
     # On rising edge of engagement (SET press enabling lat+long), auto-enable AOL
     # so that lateral persists when braking disengages longitudinal
-    if sm["selfdriveState"].active and not self.prev_active and self.always_on_lateral_set and starpilot_toggles.always_on_lateral_lkas:
+    if (not mads_mode and sm["selfdriveState"].active and not self.prev_active and
+        self.always_on_lateral_set and starpilot_toggles.always_on_lateral_lkas):
       self.main_cruise_aol_pending = False
       self.main_cruise_aol_pending_frames = 0
       if self.hyundai_aol_needs_engagement:

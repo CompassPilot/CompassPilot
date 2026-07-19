@@ -403,6 +403,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"LoudBlindspotAlertWhenDisengaged", {PERSISTENT, BOOL, "0", "0", 0, SETTINGS_SIMPLE}},
     {"LowVoltageShutdown", {PERSISTENT, FLOAT, "11.8", "11.8", 3, SETTINGS_SIMPLE}},
     {"MainCruiseButtonControl", {PERSISTENT, INT, "0", "0", 2, SETTINGS_SIMPLE}},
+    {"MADSBrakeBehavior", {PERSISTENT, INT, "0", "0", 0}},
+    {"MADSMode", {PERSISTENT, BOOL, "0", "0", 0}},
     {"ManualUpdateInitiated", {CLEAR_ON_MANAGER_START, BOOL, "0", "0"}},
     {"AMapKey1", {PERSISTENT | DONT_LOG, STRING, "", "", 0}},
     {"AMapKey2", {PERSISTENT | DONT_LOG, STRING, "", "", 0}},

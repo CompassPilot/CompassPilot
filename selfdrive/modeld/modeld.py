@@ -55,8 +55,6 @@ BUILTIN_MODEL_ALIASES = {BUILTIN_MODEL_KEY, "sc"}
 LAT_SMOOTH_SECONDS = 0.1
 LONG_SMOOTH_SECONDS = 0.3
 MIN_LAT_CONTROL_SPEED = 0.3
-
-
 def _get_param_str(params: Params, key: str, default: str = "") -> str:
   try:
     val = params.get(key)

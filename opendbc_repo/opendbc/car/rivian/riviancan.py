@@ -92,6 +92,8 @@ def create_adas_status(packer, vdm_adas_status, interface_status):
   )}
 
   if interface_status is not None:
+    if interface_status == 1:
+      values["VDM_UserAdasRequest"] = 1
     values["VDM_AdasInterfaceStatus"] = interface_status
 
   data = packer.make_can_msg("VDM_AdasSts", 2, values)[1]

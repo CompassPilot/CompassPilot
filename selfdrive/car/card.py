@@ -194,7 +194,7 @@ class Car:
 
     self.FPCP.alternativeExperience |= interface_alternative_experience
 
-    if self.starpilot_toggles.always_on_lateral:
+    if self.starpilot_toggles.always_on_lateral or getattr(self.starpilot_toggles, "mads_mode", False):
       self.CP.alternativeExperience |= ALTERNATIVE_EXPERIENCE.ALWAYS_ON_LATERAL
       self.FPCP.alternativeExperience |= ALTERNATIVE_EXPERIENCE.ALWAYS_ON_LATERAL
     if getattr(self.starpilot_toggles, "remap_cancel_to_distance", False):

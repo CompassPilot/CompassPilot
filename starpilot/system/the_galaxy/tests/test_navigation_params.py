@@ -39,6 +39,13 @@ class FakeParamsBackend:
     self.writes.append((key, bool(value)))
     self.values[key] = bool(value)
 
+  def get_int(self, key, default=0):
+    return int(self.values.get(key, default))
+
+  def put_int(self, key, value):
+    self.writes.append((key, int(value)))
+    self.values[key] = int(value)
+
   def get(self, key, block=False):
     return self.values.get(key)
 
@@ -79,14 +86,12 @@ class WritableFakeParams:
     self.values.pop(key, None)
 
 
-def _params_client(monkeypatch, values, device_type):
+def _params_client(monkeypatch, values, device_type, allowed_types=None):
   fake_params = WritableFakeParams(values)
   monkeypatch.setattr(the_galaxy, "params", fake_params)
-  monkeypatch.setattr(
-    the_galaxy,
-    "_get_param_type_info",
-    lambda: ({"UseOldUI", "TryRaylibUI"}, {"UseOldUI": bool, "TryRaylibUI": bool}),
-  )
+  allowed_types = allowed_types or {"UseOldUI": bool, "TryRaylibUI": bool}
+  monkeypatch.setattr(the_galaxy, "_get_param_type_info", lambda: (set(allowed_types), allowed_types))
+  monkeypatch.setattr(the_galaxy, "update_starpilot_toggles", lambda: None)
   monkeypatch.setattr(the_galaxy.HARDWARE, "get_device_type", lambda: device_type)
   monkeypatch.setattr(the_galaxy.Paths, "comma_home", lambda: "/tmp/dashboard-test-home", raising=False)
 
@@ -339,3 +344,69 @@ def test_curve_speed_controller_reset_rejected_onroad(monkeypatch):
   assert response.get_json()["error"] == "Curve Speed Controller data can only be reset while parked."
   assert fake_params.writes == []
   assert fake_params.removals == []
+
+
+def test_mads_enable_disables_aol_atomically(monkeypatch):
+  allowed_types = {"MADSMode": bool, "AlwaysOnLateral": bool, "MADSBrakeBehavior": int}
+  values = {"IsOnroad": False, "MADSMode": False, "AlwaysOnLateral": True}
+  client, fake_params = _params_client(monkeypatch, values, "mici", allowed_types)
+
+  response = client.put("/api/params", json={"key": "MADSMode", "value": True})
+
+  assert response.status_code == 200
+  assert response.get_json()["updated"] == {"MADSMode": True, "AlwaysOnLateral": False}
+  assert fake_params.values["MADSMode"] is True
+  assert fake_params.values["AlwaysOnLateral"] is False
+
+
+def test_aol_enable_disables_mads_atomically(monkeypatch):
+  allowed_types = {"MADSMode": bool, "AlwaysOnLateral": bool}
+  values = {"IsOnroad": False, "MADSMode": True, "AlwaysOnLateral": False}
+  client, fake_params = _params_client(monkeypatch, values, "mici", allowed_types)
+
+  response = client.put("/api/params", json={"key": "AlwaysOnLateral", "value": True})
+
+  assert response.status_code == 200
+  assert response.get_json()["updated"] == {"AlwaysOnLateral": True, "MADSMode": False}
+
+
+def test_mads_rejects_onroad_changes(monkeypatch):
+  allowed_types = {"MADSMode": bool}
+  client, fake_params = _params_client(
+    monkeypatch,
+    {"IsOnroad": True, "MADSMode": False},
+    "mici",
+    allowed_types,
+  )
+  response = client.put("/api/params", json={"key": "MADSMode", "value": True})
+  assert response.status_code == 403
+  assert fake_params.writes == []
+
+
+def test_mads_brake_behavior_accepts_only_explicit_choices(monkeypatch):
+  allowed_types = {"MADSBrakeBehavior": int}
+  values = {"IsOnroad": False, "MADSBrakeBehavior": 0}
+  client, fake_params = _params_client(monkeypatch, values, "mici", allowed_types)
+
+  response = client.put("/api/params", json={"key": "MADSBrakeBehavior", "value": 1})
+  assert response.status_code == 200
+  assert response.get_json()["updated"] == {"MADSBrakeBehavior": 1}
+  assert fake_params.values["MADSBrakeBehavior"] == 1
+
+  response = client.put("/api/params", json={"key": "MADSBrakeBehavior", "value": 2})
+  assert response.status_code == 400
+  assert fake_params.values["MADSBrakeBehavior"] == 1
+
+
+def test_mads_is_excluded_from_favorite_options(monkeypatch):
+  monkeypatch.setattr(
+    the_galaxy,
+    "_get_param_type_info",
+    lambda: ({"MADSMode", "AlwaysOnLateral"}, {"MADSMode": bool, "AlwaysOnLateral": bool}),
+  )
+  monkeypatch.setattr(the_galaxy, "_favorite_slot_options", None)
+
+  option_keys = {option["key"] for option in the_galaxy._get_favorite_slot_options()}
+
+  assert "AlwaysOnLateral" in option_keys
+  assert "MADSMode" not in option_keys
