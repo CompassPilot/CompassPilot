@@ -32,6 +32,8 @@ int set_safety_hooks(uint16_t mode, uint16_t param);
 
 void set_controls_allowed(bool c);
 bool get_controls_allowed(void);
+bool get_aol_allowed(void);
+bool get_lkas_on(void);
 bool get_longitudinal_allowed(void);
 void set_alternative_experience(int mode);
 int get_alternative_experience(void);

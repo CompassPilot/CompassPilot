@@ -69,17 +69,34 @@ def make_toggles(**overrides):
     "bookmark_via_cancel": False,
     "bookmark_via_cancel_long": False,
     "bookmark_via_cancel_very_long": False,
+    "bookmark_via_distance_long": False,
+    "bookmark_via_distance_very_long": False,
     "bookmark_via_lkas": False,
     "conditional_experimental_mode": False,
     "experimental_mode_via_lkas": False,
+    "experimental_mode_via_distance_long": False,
+    "experimental_mode_via_distance_very_long": False,
+    "force_coast_via_distance_long": False,
+    "force_coast_via_distance_very_long": False,
     "force_coast_via_lkas": False,
     "lkas_allowed_for_aol": False,
     "main_cruise_aol_toggle": False,
     "main_cruise_slc_adopt": False,
     "pause_lateral_via_lkas": False,
+    "pause_lateral_via_distance_long": False,
+    "pause_lateral_via_distance_very_long": False,
     "pause_longitudinal_via_lkas": False,
+    "pause_longitudinal_via_distance_long": False,
+    "pause_longitudinal_via_distance_very_long": False,
+    "safe_mode": False,
+    "mads_mode": False,
+    "mads_brake_behavior": 0,
     "speed_limit_controller": False,
     "switchback_mode_via_lkas": False,
+    "switchback_mode_via_distance_long": False,
+    "switchback_mode_via_distance_very_long": False,
+    "traffic_mode_via_distance_long": False,
+    "traffic_mode_via_distance_very_long": False,
     "traffic_mode_via_lkas": False,
   }
   defaults.update(overrides)
@@ -648,6 +665,66 @@ def test_lkas_button_press_creates_bookmark(monkeypatch, tmp_path):
   assert card.params_memory.get_int("WheelButtonBookmarkCounter") == 1
 
 
+def test_rivian_scroll_click_hold_uses_acc_state_during_longitudinal_override(monkeypatch, tmp_path):
+  monkeypatch.setattr(spc, "Params", FakeParams)
+  monkeypatch.setattr(spc, "is_FrogsGoMoo", lambda: False)
+  monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
+
+  card = spc.StarPilotCard(SimpleNamespace(brand="rivian"), SimpleNamespace(alternativeExperience=0))
+  sm = make_sm()
+  sm["carControl"].longActive = False
+  toggles = make_toggles(traffic_mode_via_distance_very_long=True)
+  starpilot_car_state = SimpleNamespace(distancePressed=True)
+  car_state = make_car_state(enabled=True)
+
+  for _ in range(card.very_long_press_threshold - 1):
+    card.update(car_state, starpilot_car_state, sm, toggles)
+  assert card.traffic_mode_enabled is False
+
+  ret = card.update(car_state, starpilot_car_state, sm, toggles)
+  assert card.traffic_mode_enabled is True
+  assert ret.distanceVeryLongPressed is True
+
+  # Keep holding past the threshold, as the on-road action does in practice,
+  # then verify releasing the click does not clear Traffic Mode.
+  card.update(car_state, starpilot_car_state, sm, toggles)
+  starpilot_car_state.distancePressed = False
+  ret = card.update(car_state, starpilot_car_state, sm, toggles)
+  assert ret.trafficModeEnabled is True
+
+
+def test_non_rivian_traffic_mode_still_requires_longitudinal_control(monkeypatch, tmp_path):
+  monkeypatch.setattr(spc, "Params", FakeParams)
+  monkeypatch.setattr(spc, "is_FrogsGoMoo", lambda: False)
+  monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
+
+  card = spc.StarPilotCard(SimpleNamespace(brand="gm"), SimpleNamespace(alternativeExperience=0))
+  sm = make_sm()
+  toggles = make_toggles(traffic_mode_via_lkas=True)
+
+  card.handle_button_event("lkas", sm, toggles)
+  assert card.traffic_mode_enabled is False
+
+  sm["carControl"].longActive = True
+  card.handle_button_event("lkas", sm, toggles)
+  assert card.traffic_mode_enabled is True
+
+
+def test_rivian_traffic_mode_requires_acc_engagement(monkeypatch, tmp_path):
+  monkeypatch.setattr(spc, "Params", FakeParams)
+  monkeypatch.setattr(spc, "is_FrogsGoMoo", lambda: False)
+  monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
+
+  card = spc.StarPilotCard(SimpleNamespace(brand="rivian"), SimpleNamespace(alternativeExperience=0))
+  sm = make_sm()
+  sm["carControl"].longActive = True
+  toggles = make_toggles(traffic_mode_via_lkas=True)
+
+  card.update(make_car_state(enabled=False), SimpleNamespace(distancePressed=False), sm, toggles)
+  card.handle_button_event("lkas", sm, toggles)
+  assert card.traffic_mode_enabled is False
+
+
 def test_favorite_wheel_action_toggles_hidden_onroad_slot(monkeypatch, tmp_path):
   monkeypatch.setattr(spc, "Params", FakeParams)
   monkeypatch.setattr(spc, "is_FrogsGoMoo", lambda: False)
@@ -678,3 +755,100 @@ def test_favorite_wheel_action_can_press_virtual_resume(monkeypatch, tmp_path):
   card.handle_button_event("lkas", make_sm(), make_toggles(favorite_1_via_lkas=True))
 
   assert card.params_memory.get_int(FAVORITE_ACTION_ACCEL_COUNTER) == 1
+
+
+def make_mads_card(monkeypatch, tmp_path, brand="rivian"):
+  monkeypatch.setattr(spc, "Params", FakeParams)
+  monkeypatch.setattr(spc, "is_FrogsGoMoo", lambda: False)
+  monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
+  return spc.StarPilotCard(
+    SimpleNamespace(brand=brand),
+    SimpleNamespace(alternativeExperience=spc.ALTERNATIVE_EXPERIENCE.ALWAYS_ON_LATERAL),
+  )
+
+
+def test_rivian_mads_half_up_toggles_lateral_with_acc_off(monkeypatch, tmp_path):
+  card = make_mads_card(monkeypatch, tmp_path)
+  toggles = make_toggles(mads_mode=True)
+  starpilot_car_state = SimpleNamespace(distancePressed=False)
+  car_state = make_car_state(button_events=[SimpleNamespace(type=spc.ButtonType.lkas, pressed=True)])
+
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is True
+  assert ret.alwaysOnLateralEnabled is True
+
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is False
+  assert ret.alwaysOnLateralEnabled is False
+
+
+def test_mads_cruise_engagement_enables_lateral_and_cancel_preserves_it(monkeypatch, tmp_path):
+  card = make_mads_card(monkeypatch, tmp_path, brand="toyota")
+  toggles = make_toggles(mads_mode=True)
+  starpilot_car_state = SimpleNamespace(distancePressed=False)
+  car_state = make_car_state(enabled=True)
+
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is True
+
+  car_state.cruiseState.enabled = False
+  car_state.buttonEvents = []
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is True
+  assert ret.alwaysOnLateralEnabled is True
+
+
+def test_mads_lateral_engagement_enables_lateral(monkeypatch, tmp_path):
+  card = make_mads_card(monkeypatch, tmp_path, brand="honda")
+  toggles = make_toggles(mads_mode=True)
+  sm = make_sm()
+  sm["selfdriveState"].active = True
+
+  ret = card.update(make_car_state(), SimpleNamespace(distancePressed=False), sm, toggles)
+
+  assert ret.alwaysOnLateralAllowed is True
+  assert ret.alwaysOnLateralEnabled is True
+
+
+def test_rivian_mads_full_up_and_non_drive_gears_clear_lateral(monkeypatch, tmp_path):
+  toggles = make_toggles(mads_mode=True, mads_brake_behavior=1)
+
+  for gear in (spc.GearShifter.park, spc.GearShifter.neutral, spc.GearShifter.reverse, spc.GearShifter.unknown):
+    card = make_mads_card(monkeypatch, tmp_path)
+    starpilot_car_state = SimpleNamespace(distancePressed=False)
+    car_state = make_car_state(enabled=True)
+    card.update(car_state, starpilot_car_state, make_sm(), toggles)
+
+    car_state.cruiseState.enabled = False
+    car_state.gearShifter = gear
+    ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+    assert ret.alwaysOnLateralAllowed is False
+    assert ret.alwaysOnLateralEnabled is False
+
+    car_state.gearShifter = spc.GearShifter.drive
+    ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+    assert ret.alwaysOnLateralAllowed is False
+
+  card = make_mads_card(monkeypatch, tmp_path)
+  starpilot_car_state = SimpleNamespace(distancePressed=False)
+  car_state = make_car_state(enabled=True)
+  card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  car_state.cruiseState.enabled = False
+  car_state.buttonEvents = [SimpleNamespace(type=spc.ButtonType.altButton2, pressed=True)]
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is False
+
+
+def test_mads_brake_behavior(monkeypatch, tmp_path):
+  for brake_behavior, expected_allowed in ((0, False), (1, True)):
+    card = make_mads_card(monkeypatch, tmp_path, brand="gm")
+    toggles = make_toggles(mads_mode=True, mads_brake_behavior=brake_behavior)
+    starpilot_car_state = SimpleNamespace(distancePressed=False)
+    car_state = make_car_state(enabled=True)
+    card.update(car_state, starpilot_car_state, make_sm(), toggles)
+
+    car_state.cruiseState.enabled = False
+    car_state.brakePressed = True
+    ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+    assert ret.alwaysOnLateralAllowed is expected_allowed
+    assert ret.alwaysOnLateralEnabled is expected_allowed

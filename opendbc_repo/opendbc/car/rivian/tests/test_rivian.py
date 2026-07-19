@@ -1,8 +1,165 @@
+from types import SimpleNamespace
+
+from opendbc.car import Bus, structs
+from opendbc.car.rivian import ext_controller
+from opendbc.car.rivian.carcontroller import get_longitudinal_accel
+from opendbc.car.rivian.carstate_ext import RivianLongitudinalState
+from opendbc.car.rivian.ext_controller import ExternalController
+from opendbc.car.rivian.faults import get_steering_faults
 from opendbc.car.rivian.fingerprints import FW_VERSIONS
-from opendbc.car.rivian.values import CAR, FW_QUERY_CONFIG, WMI, ModelLine, ModelYear
+from opendbc.car.rivian.interface import CarInterface
+from opendbc.car.rivian.values import CAR, FW_QUERY_CONFIG, WMI, ModelLine, ModelYear, RivianFlags, RivianSafetyFlags
 
 
 class TestRivian:
+  @staticmethod
+  def _car_params(bus_one_messages=(), alpha_long=False):
+    fingerprint = {bus: {} for bus in range(8)}
+    fingerprint[1] = {address: 8 for address in bus_one_messages}
+    return CarInterface.get_params(CAR.RIVIAN_R1_GEN1, fingerprint, [], alpha_long, False, False, SimpleNamespace())
+
+  def test_missing_extreme_harness_is_dashcam_only(self):
+    params = self._car_params()
+
+    assert params.dashcamOnly
+    assert not params.flags & RivianFlags.ANGLE_HARNESS
+    assert not params.safetyConfigs[0].safetyParam & RivianSafetyFlags.ANGLE_CONTROL
+
+  def test_longitudinal_harness_without_extreme_harness_is_dashcam_only(self):
+    params = self._car_params((0x131A,), alpha_long=True)
+
+    assert params.dashcamOnly
+    assert params.flags & RivianFlags.LONGITUDINAL_HARNESS
+    assert not params.flags & RivianFlags.ANGLE_HARNESS
+
+  def test_extreme_harness_enables_angle_control(self):
+    params = self._car_params((0x1310,))
+
+    assert not params.dashcamOnly
+    assert params.flags & RivianFlags.ANGLE_HARNESS
+    assert params.safetyConfigs[0].safetyParam & RivianSafetyFlags.ANGLE_CONTROL
+
+  def test_extreme_and_longitudinal_harnesses_enable_both_paths(self):
+    params = self._car_params((0x1310, 0x131A), alpha_long=True)
+
+    assert not params.dashcamOnly
+    assert params.flags & RivianFlags.ANGLE_HARNESS
+    assert params.flags & RivianFlags.LONGITUDINAL_HARNESS
+    assert params.safetyConfigs[0].safetyParam & RivianSafetyFlags.ANGLE_CONTROL
+    assert params.safetyConfigs[0].safetyParam & RivianSafetyFlags.LONG_CONTROL
+    assert params.openpilotLongitudinalControl
+
+  def test_gas_pedal_zeroes_stale_longitudinal_acceleration(self):
+    assert get_longitudinal_accel(0.07, gas_pressed=True) == 0.0
+    assert get_longitudinal_accel(-2.44, gas_pressed=True) == 0.0
+    assert get_longitudinal_accel(0.07, gas_pressed=False) == 0.07
+
+  @staticmethod
+  def _longitudinal_parsers(scroll=0, scroll_click=0):
+    return {
+      Bus.alt: SimpleNamespace(vl={
+        "WheelButtons_Fwd": {
+          "RightButton_Scroll": scroll,
+          "RightButton_ScrollClick": scroll_click,
+          "RightButton_RightClick": 0,
+          "RightButton_LeftClick": 0,
+        },
+        "BSM_BlindSpotIndicator_Fwd": {
+          "BSM_BlindSpotIndicator_Left": 0,
+          "BSM_BlindSpotIndicator_Right": 0,
+        },
+      }),
+      Bus.adas: SimpleNamespace(vl={"Cluster": {"Cluster_Unit": 1}}),
+      Bus.pt: SimpleNamespace(vl={"VDM_AdasSts": {"VDM_UserAdasRequest": 0}}),
+    }
+
+  @staticmethod
+  def _longitudinal_ret():
+    return SimpleNamespace(
+      buttonEvents=[],
+      cruiseState=SimpleNamespace(enabled=True, speed=0.0),
+      vEgoCluster=10.0,
+      leftBlindspot=False,
+      rightBlindspot=False,
+    )
+
+  def test_scroll_rotation_emits_one_personality_event_per_detent(self):
+    state = RivianLongitudinalState(SimpleNamespace(openpilotLongitudinalControl=True))
+    ret = self._longitudinal_ret()
+
+    assert state.update_longitudinal_upgrade(ret, self._longitudinal_parsers(scroll=0)) == []
+    events = state.update_longitudinal_upgrade(ret, self._longitudinal_parsers(scroll=1))
+    assert [(event.type, event.pressed) for event in events] == [(structs.CarState.ButtonEvent.Type.gapAdjustCruise, False)]
+    assert state.update_longitudinal_upgrade(ret, self._longitudinal_parsers(scroll=1)) == []
+    assert state.update_longitudinal_upgrade(ret, self._longitudinal_parsers(scroll=255)) == []
+    events = state.update_longitudinal_upgrade(ret, self._longitudinal_parsers(scroll=2))
+    assert [(event.type, event.pressed) for event in events] == [(structs.CarState.ButtonEvent.Type.gapAdjustCruise, False)]
+
+  def test_scroll_click_emits_held_distance_button_edges(self):
+    state = RivianLongitudinalState(SimpleNamespace(openpilotLongitudinalControl=True))
+    ret = self._longitudinal_ret()
+
+    assert state.update_longitudinal_upgrade(ret, self._longitudinal_parsers()) == []
+    events = state.update_longitudinal_upgrade(ret, self._longitudinal_parsers(scroll_click=2))
+    assert [(event.type, event.pressed) for event in events] == [(structs.CarState.ButtonEvent.Type.gapAdjustCruise, True)]
+    assert state.update_longitudinal_upgrade(ret, self._longitudinal_parsers(scroll_click=2)) == []
+    events = state.update_longitudinal_upgrade(ret, self._longitudinal_parsers(scroll_click=0))
+    assert [(event.type, event.pressed) for event in events] == [(structs.CarState.ButtonEvent.Type.gapAdjustCruise, False)]
+
+  def test_scroll_controls_are_ignored_without_openpilot_longitudinal(self):
+    state = RivianLongitudinalState(SimpleNamespace(openpilotLongitudinalControl=False))
+    events = state.update_longitudinal_upgrade(
+      self._longitudinal_ret(),
+      self._longitudinal_parsers(scroll=1, scroll_click=2),
+    )
+    assert events == []
+
+  @staticmethod
+  def _stalk_parsers(request):
+    return {Bus.pt: SimpleNamespace(vl={"VDM_AdasSts": {"VDM_UserAdasRequest": request}})}
+
+  def test_mads_half_up_is_deferred_and_full_up_does_not_toggle(self):
+    state = RivianLongitudinalState(SimpleNamespace(flags=0, openpilotLongitudinalControl=False))
+    ret = SimpleNamespace(cruiseState=SimpleNamespace(enabled=False))
+
+    assert state.update_stalk_controls(ret, self._stalk_parsers(1), True) == []
+    events = state.update_stalk_controls(ret, self._stalk_parsers(0), True)
+    assert [(event.type, event.pressed) for event in events] == [(structs.CarState.ButtonEvent.Type.lkas, True)]
+
+    state = RivianLongitudinalState(SimpleNamespace(flags=0, openpilotLongitudinalControl=False))
+    assert state.update_stalk_controls(ret, self._stalk_parsers(1), True) == []
+    events = state.update_stalk_controls(ret, self._stalk_parsers(2), True)
+    assert [(event.type, event.pressed) for event in events] == [(structs.CarState.ButtonEvent.Type.altButton2, True)]
+
+  def test_mads_half_up_used_to_cancel_acc_is_suppressed(self):
+    state = RivianLongitudinalState(SimpleNamespace(flags=0, openpilotLongitudinalControl=False))
+    ret = SimpleNamespace(cruiseState=SimpleNamespace(enabled=True))
+
+    assert state.update_stalk_controls(ret, self._stalk_parsers(1), True) == []
+    ret.cruiseState.enabled = False
+    assert state.update_stalk_controls(ret, self._stalk_parsers(0), True) == []
+
+  def test_angle_harness_ignores_toi_fault(self):
+    permanent, temporary, disengage = get_steering_faults(True, True, 1, 0)
+
+    assert not permanent
+    assert not temporary
+    assert not disengage
+
+  def test_angle_harness_reports_active_eac_fault(self):
+    permanent, temporary, disengage = get_steering_faults(True, False, 2, 12)
+
+    assert not permanent
+    assert temporary
+    assert disengage
+
+  def test_torque_harness_reports_toi_fault(self):
+    permanent, temporary, disengage = get_steering_faults(False, True, 1, 0)
+
+    assert not permanent
+    assert temporary
+    assert not disengage
+
   def test_custom_fuzzy_fingerprinting(self, subtests):
     for platform in CAR:
       with subtests.test(platform=platform.name):
@@ -21,3 +178,124 @@ class TestRivian:
                 matches = FW_QUERY_CONFIG.match_fw_to_car_fuzzy({}, vin, FW_VERSIONS)
                 should_match = year != ModelYear.S_2025 and not bad
                 assert (matches == {platform}) == should_match, "Bad match"
+
+  def test_high_angle_torque_blip_resets_limiter_and_ramps_from_zero(self, monkeypatch):
+    controller = ExternalController.__new__(ExternalController)
+    controller.torque_active = True
+    controller.apply_torque_last = 0
+    controller.apply_torque = 0
+    controller.toi_angle_limit_counter = 89
+    controller.toi_act_cmd = True
+
+    car_state = SimpleNamespace(out=SimpleNamespace(vEgoRaw=10.0, steeringTorque=0.0, steeringAngleDeg=100.0))
+    actuators = SimpleNamespace(torque=1.0)
+    toi_states = iter(((90, False), (0, True)))
+    monkeypatch.setattr(ext_controller, "common_fault_avoidance", lambda *args: next(toi_states))
+
+    controller._update_torque(car_state, actuators)
+
+    assert controller.apply_torque_last == 0
+    assert controller.apply_torque == 0
+    assert not controller.toi_act_cmd
+
+    controller._update_torque(car_state, actuators)
+
+    assert controller.apply_torque_last == 3
+    assert controller.apply_torque == 3
+    assert controller.toi_act_cmd
+
+  @staticmethod
+  def _handoff_controller(torque_active=False, lat_active_last=True):
+    controller = ExternalController.__new__(ExternalController)
+    controller.hands_on = False
+    controller.torque_active = torque_active
+    controller.torque_active_frames = ext_controller.MIN_TORQUE_FRAMES
+    controller.driver_release_frames = 0
+    controller.lat_active_last = lat_active_last
+    controller.eac_dead_frames = 0
+    controller.rate_budget = SimpleNamespace(bounds=lambda *_: (-1000.0, 1000.0))
+    return controller
+
+  @staticmethod
+  def _handoff_car_state(*, speed=10.0, angle=0.0, rate=0.0, torque=0.0, pressed=False):
+    return SimpleNamespace(
+      out=SimpleNamespace(
+        vEgoRaw=speed,
+        steeringAngleDeg=angle,
+        steeringRateDeg=rate,
+        steeringTorque=torque,
+        steeringPressed=pressed,
+      ),
+      eac_status=1,
+      eac_error_code=0,
+    )
+
+  def test_angle_reentry_waits_for_stable_driver_release(self):
+    controller = self._handoff_controller(torque_active=True)
+    car_state = self._handoff_car_state(pressed=True, torque=2.0)
+
+    controller._update_torque_active(car_state, True, 0.0)
+    assert controller.torque_active
+    assert controller.driver_release_frames == 0
+
+    car_state.out.steeringPressed = False
+    car_state.out.steeringTorque = 0.0
+    for _ in range(ext_controller.DRIVER_RELEASE_FRAMES - 1):
+      controller._update_torque_active(car_state, True, 0.0)
+      assert controller.torque_active
+
+    controller._update_torque_active(car_state, True, 0.0)
+    assert not controller.torque_active
+
+  def test_angle_reentry_release_window_resets_on_driver_input(self):
+    controller = self._handoff_controller(torque_active=True)
+    car_state = self._handoff_car_state()
+
+    for _ in range(ext_controller.DRIVER_RELEASE_FRAMES - 1):
+      controller._update_torque_active(car_state, True, 0.0)
+
+    car_state.out.steeringPressed = True
+    car_state.out.steeringTorque = 2.0
+    controller._update_torque_active(car_state, True, 0.0)
+    assert controller.torque_active
+    assert controller.driver_release_frames == 0
+
+    car_state.out.steeringPressed = False
+    car_state.out.steeringTorque = 0.0
+    controller._update_torque_active(car_state, True, 0.0)
+    assert controller.torque_active
+    assert controller.driver_release_frames == 1
+
+  def test_opposing_driver_torque_enters_torque_fallback_without_hands_on(self):
+    controller = self._handoff_controller()
+    # Route-derived signature: the requested angle moved left while the driver
+    # applied rightward torque, before the slower hands-on filters asserted.
+    car_state = self._handoff_car_state(angle=-1.7, torque=1.47, pressed=True)
+
+    controller._update_torque_active(car_state, True, -15.0)
+
+    assert controller.torque_active
+
+  def test_cooperating_driver_torque_does_not_force_fallback_without_hands_on(self):
+    controller = self._handoff_controller()
+    car_state = self._handoff_car_state(angle=14.9, torque=2.35, pressed=True)
+
+    controller._update_torque_active(car_state, True, 29.6)
+
+    assert not controller.torque_active
+
+  def test_fresh_low_speed_engagement_starts_in_torque(self):
+    controller = self._handoff_controller(lat_active_last=False)
+    car_state = self._handoff_car_state(speed=0.0)
+
+    controller._update_torque_active(car_state, True, -25.4)
+
+    assert controller.torque_active
+
+  def test_fresh_road_speed_engagement_can_start_in_angle(self):
+    controller = self._handoff_controller(lat_active_last=False)
+    car_state = self._handoff_car_state(speed=15.0)
+
+    controller._update_torque_active(car_state, True, -25.4)
+
+    assert not controller.torque_active

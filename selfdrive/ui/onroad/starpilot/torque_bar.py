@@ -7,6 +7,7 @@ import numpy as np
 import pyray as rl
 from opendbc.car import ACCELERATION_DUE_TO_GRAVITY
 from openpilot.selfdrive.ui.lib.starpilot_visuals import blend_colors
+from openpilot.selfdrive.ui.onroad.starpilot.rivian_lateral_mode import rivian_lateral_mode
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.shader_polygon import draw_polygon, Gradient
@@ -163,8 +164,11 @@ class TorqueBar(Widget):
     if self._demo:
       return
 
-    # torque line
-    if ui_state.sm['controlsState'].lateralControlState.which() == 'angleState':
+    rivian_lateral_mode.update()
+    # Angle-controlled cars, including Rivian's hybrid controller while its
+    # angle channel is active, use a lateral-acceleration estimate for the bar.
+    if (ui_state.sm['controlsState'].lateralControlState.which() == 'angleState' or
+        rivian_lateral_mode.mode == "angle"):
       controls_state = ui_state.sm['controlsState']
       car_state = ui_state.sm['carState']
       live_parameters = ui_state.sm['liveParameters']

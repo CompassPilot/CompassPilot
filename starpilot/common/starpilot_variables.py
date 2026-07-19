@@ -777,7 +777,16 @@ class StarPilotVariables:
     toggle.warningSoft_volume = self.get_value("WarningSoftVolume", cast=float, condition=toggle.alert_volume_controller)
     toggle.warningImmediate_volume = max(self.get_value("WarningImmediateVolume", cast=float, condition=toggle.alert_volume_controller, default=25), 25)
 
-    toggle.always_on_lateral = self.get_value("AlwaysOnLateral")
+    toggle.mads_mode = self.get_value("MADSMode")
+    toggle.mads_brake_behavior = self.get_value(
+      "MADSBrakeBehavior", cast=int, condition=toggle.mads_mode, default=0, min=0, max=1,
+    )
+
+    # MADS and Always On Lateral share the lateral-only control path, but use
+    # different engagement behavior. MADS takes precedence in stale configurations.
+    if toggle.mads_mode and self.params.get_bool("AlwaysOnLateral"):
+      self.params.put_bool("AlwaysOnLateral", False)
+    toggle.always_on_lateral = self.get_value("AlwaysOnLateral") and not toggle.mads_mode
     lkas_button_assigned_to_aol = self.get_button_function("LKASButtonControl") == BUTTON_FUNCTIONS["AOL_TOGGLE"]
     toggle.always_on_lateral_lkas = toggle.always_on_lateral and toggle.lkas_allowed_for_aol and lkas_button_assigned_to_aol
     toggle.always_on_lateral_main = toggle.always_on_lateral and not prohibited_main_aol

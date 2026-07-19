@@ -55,6 +55,11 @@ BUILTIN_MODEL_ALIASES = {BUILTIN_MODEL_KEY, "sc"}
 LAT_SMOOTH_SECONDS = 0.1
 LONG_SMOOTH_SECONDS = 0.3
 MIN_LAT_CONTROL_SPEED = 0.3
+LAT_SMOOTH_BP = [2.0, 8.0]
+
+
+def get_lateral_smooth_seconds(v_ego: float, maximum: float = LAT_SMOOTH_SECONDS) -> float:
+  return float(np.interp(v_ego, LAT_SMOOTH_BP, [maximum, 0.0]))
 
 
 def _get_param_str(params: Params, key: str, default: str = "") -> str:
@@ -114,7 +119,8 @@ def _canonical_model_id(model_id: str) -> str:
 
 def get_action_from_model(model_output: dict[str, np.ndarray], prev_action: log.ModelDataV2.Action,
                           lat_action_t: float, long_action_t: float, v_ego: float, mlsim: bool,
-                          is_v9: bool, is_v14: bool, is_v15: bool, starpilot_toggles) -> log.ModelDataV2.Action:
+                          is_v9: bool, is_v14: bool, is_v15: bool, starpilot_toggles,
+                          lat_smooth_seconds: float = LAT_SMOOTH_SECONDS) -> log.ModelDataV2.Action:
     if is_v14 or is_v15:
       desired_curv_unscaled, desired_accel = model_output['action'][0]
       if is_v15:
@@ -125,7 +131,7 @@ def get_action_from_model(model_output: dict[str, np.ndarray], prev_action: log.
 
       desired_accel = smooth_value(float(desired_accel), prev_action.desiredAcceleration, LONG_SMOOTH_SECONDS)
       if v_ego > MIN_LAT_CONTROL_SPEED:
-        desired_curvature = smooth_value(desired_curvature, prev_action.desiredCurvature, LAT_SMOOTH_SECONDS)
+        desired_curvature = smooth_value(desired_curvature, prev_action.desiredCurvature, lat_smooth_seconds)
       else:
         desired_curvature = prev_action.desiredCurvature
 
@@ -155,7 +161,7 @@ def get_action_from_model(model_output: dict[str, np.ndarray], prev_action: log.
     else:
       desired_curvature = get_curvature_from_output(model_output, plan, v_ego, lat_action_t, mlsim=mlsim)
     if v_ego > MIN_LAT_CONTROL_SPEED:
-      desired_curvature = smooth_value(desired_curvature, prev_action.desiredCurvature, LAT_SMOOTH_SECONDS)
+      desired_curvature = smooth_value(desired_curvature, prev_action.desiredCurvature, lat_smooth_seconds)
     else:
       desired_curvature = prev_action.desiredCurvature
 
@@ -570,7 +576,8 @@ def main(demo=False):
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["roadCameraState"].frameId
     v_ego = max(sm["carState"].vEgo, 0.)
-    lat_delay = sm["liveDelay"].lateralDelay + LAT_SMOOTH_SECONDS
+    lat_smooth_seconds = get_lateral_smooth_seconds(v_ego, CP.lateralSmoothSeconds)
+    lat_delay = sm["liveDelay"].lateralDelay + lat_smooth_seconds
     lateral_control_params = np.array([v_ego, lat_delay], dtype=np.float32)
     if sm.frame % 60 == 0:
       camera_offset.set_target(params.get_float("CameraOffset", return_default=True))
@@ -658,7 +665,7 @@ def main(demo=False):
         model_output, prev_action,
         lat_action_t,
         long_action_t,
-        v_ego, model.mlsim, model.is_v9, model.is_v14, model.is_v15, starpilot_toggles,
+        v_ego, model.mlsim, model.is_v9, model.is_v14, model.is_v15, starpilot_toggles, lat_smooth_seconds,
       )
       prev_action = action
       fill_model_msg(drivingdata_send, modelv2_send, model_output, action,
