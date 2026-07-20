@@ -76,11 +76,18 @@ def starpilot_boot_functions(build_metadata, params):
   sync_konik_dongle_id(params)
 
   def boot_thread():
-    while not system_time_valid():
-      print("Waiting for system time to become valid...")
-      time.sleep(1)
+    while True:
+      while not system_time_valid():
+        print("Waiting for system time to become valid...")
+        time.sleep(1)
 
-    backup_starpilot(build_metadata, params)
+      if params.get_bool("IsOnroad"):
+        print("Waiting for car to go offroad before backing up StarPilot...")
+        while params.get_bool("IsOnroad"):
+          time.sleep(1)
+
+      if backup_starpilot(build_metadata, params):
+        break
 
   threading.Thread(target=boot_thread, daemon=True).start()
 
