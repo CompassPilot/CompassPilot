@@ -384,9 +384,10 @@ class Car:
       now_nanos = self.can_log_mono_time if REPLAY else int(time.monotonic() * 1e9)
       self._update_redneck_cruise(CS, CC)
       self._update_openpilot_lead_state(CC)
-      if self.CP.brand == "rivian" and self.sm.seen['liveParameters'] and hasattr(self.CI.CC, 'update_live_params'):
+      if self.CP.brand == "rivian" and self.sm.all_checks(['liveParameters']) and hasattr(self.CI.CC, 'update_live_params'):
         live_params = self.sm['liveParameters']
-        self.CI.CC.update_live_params(live_params.roll, live_params.angleOffsetDeg)
+        self.CI.CC.update_live_params(live_params.roll, live_params.angleOffsetDeg,
+                                      live_params.stiffnessFactor, live_params.steerRatio)
       self.last_actuators_output, can_sends = self.CI.apply(CC, now_nanos, self.starpilot_toggles)
       self.pm.send('sendcan', can_list_to_can_capnp(can_sends, msgtype='sendcan', valid=CS.canValid))
 

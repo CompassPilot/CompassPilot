@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from opendbc.car import Bus, structs
 from opendbc.car.rivian import ext_controller
-from opendbc.car.rivian.carcontroller import get_longitudinal_accel
+from opendbc.car.rivian.carcontroller import CarController, get_longitudinal_accel
 from opendbc.car.rivian.carstate_ext import RivianLongitudinalState
 from opendbc.car.rivian.ext_controller import ExternalController
 from opendbc.car.rivian.faults import get_steering_faults
@@ -53,6 +53,21 @@ class TestRivian:
     assert get_longitudinal_accel(0.07, gas_pressed=True) == 0.0
     assert get_longitudinal_accel(-2.44, gas_pressed=True) == 0.0
     assert get_longitudinal_accel(0.07, gas_pressed=False) == 0.07
+
+  def test_live_params_update_rx_dev_command_model(self):
+    updates = []
+    controller = CarController.__new__(CarController)
+    controller.ext_controller = SimpleNamespace(
+      roll=0.0,
+      angle_offset_deg=0.0,
+      VM=SimpleNamespace(update_params=lambda stiffness, ratio: updates.append((stiffness, ratio))),
+    )
+
+    controller.update_live_params(0.05, 1.25, 0.8, 16.0)
+
+    assert controller.ext_controller.roll == 0.05
+    assert controller.ext_controller.angle_offset_deg == 1.25
+    assert updates == [(0.8, 16.0)]
 
   @staticmethod
   def _longitudinal_parsers(scroll=0, scroll_click=0):
@@ -183,7 +198,6 @@ class TestRivian:
     controller = ExternalController.__new__(ExternalController)
     controller.torque_active = True
     controller.apply_torque_last = 0
-    controller.apply_torque = 0
     controller.toi_angle_limit_counter = 89
     controller.toi_act_cmd = True
 
@@ -195,13 +209,11 @@ class TestRivian:
     controller._update_torque(car_state, actuators)
 
     assert controller.apply_torque_last == 0
-    assert controller.apply_torque == 0
     assert not controller.toi_act_cmd
 
     controller._update_torque(car_state, actuators)
 
     assert controller.apply_torque_last == 3
-    assert controller.apply_torque == 3
     assert controller.toi_act_cmd
 
   @staticmethod
@@ -210,14 +222,16 @@ class TestRivian:
     controller.hands_on = False
     controller.torque_active = torque_active
     controller.torque_active_frames = ext_controller.MIN_TORQUE_FRAMES
-    controller.driver_release_frames = 0
     controller.lat_active_last = lat_active_last
     controller.eac_dead_frames = 0
+    controller.eac_rearm_release_frames = 0
+    controller.eac_rearm_attempted = False
     controller.rate_budget = SimpleNamespace(bounds=lambda *_: (-1000.0, 1000.0))
     return controller
 
   @staticmethod
-  def _handoff_car_state(*, speed=10.0, angle=0.0, rate=0.0, torque=0.0, pressed=False):
+  def _handoff_car_state(*, speed=10.0, angle=0.0, rate=0.0, torque=0.0, pressed=False,
+                         eac_status=1, eac_error_code=0, temporary_fault=False, permanent_fault=False):
     return SimpleNamespace(
       out=SimpleNamespace(
         vEgoRaw=speed,
@@ -225,77 +239,156 @@ class TestRivian:
         steeringRateDeg=rate,
         steeringTorque=torque,
         steeringPressed=pressed,
+        steerFaultTemporary=temporary_fault,
+        steerFaultPermanent=permanent_fault,
       ),
-      eac_status=1,
-      eac_error_code=0,
+      eac_status=eac_status,
+      eac_error_code=eac_error_code,
     )
 
-  def test_angle_reentry_waits_for_stable_driver_release(self):
-    controller = self._handoff_controller(torque_active=True)
-    car_state = self._handoff_car_state(pressed=True, torque=2.0)
-
-    controller._update_torque_active(car_state, True, 0.0)
-    assert controller.torque_active
-    assert controller.driver_release_frames == 0
-
-    car_state.out.steeringPressed = False
-    car_state.out.steeringTorque = 0.0
-    for _ in range(ext_controller.DRIVER_RELEASE_FRAMES - 1):
-      controller._update_torque_active(car_state, True, 0.0)
-      assert controller.torque_active
-
-    controller._update_torque_active(car_state, True, 0.0)
-    assert not controller.torque_active
-
-  def test_angle_reentry_release_window_resets_on_driver_input(self):
+  def test_rx_dev_status_available_hands_off_hands_back_without_extra_delay(self):
     controller = self._handoff_controller(torque_active=True)
     car_state = self._handoff_car_state()
 
-    for _ in range(ext_controller.DRIVER_RELEASE_FRAMES - 1):
-      controller._update_torque_active(car_state, True, 0.0)
-
-    car_state.out.steeringPressed = True
-    car_state.out.steeringTorque = 2.0
     controller._update_torque_active(car_state, True, 0.0)
-    assert controller.torque_active
-    assert controller.driver_release_frames == 0
-
-    car_state.out.steeringPressed = False
-    car_state.out.steeringTorque = 0.0
-    controller._update_torque_active(car_state, True, 0.0)
-    assert controller.torque_active
-    assert controller.driver_release_frames == 1
-
-  def test_opposing_driver_torque_enters_torque_fallback_without_hands_on(self):
-    controller = self._handoff_controller()
-    # Route-derived signature: the requested angle moved left while the driver
-    # applied rightward torque, before the slower hands-on filters asserted.
-    car_state = self._handoff_car_state(angle=-1.7, torque=1.47, pressed=True)
-
-    controller._update_torque_active(car_state, True, -15.0)
-
-    assert controller.torque_active
-
-  def test_cooperating_driver_torque_does_not_force_fallback_without_hands_on(self):
-    controller = self._handoff_controller()
-    car_state = self._handoff_car_state(angle=14.9, torque=2.35, pressed=True)
-
-    controller._update_torque_active(car_state, True, 29.6)
 
     assert not controller.torque_active
 
-  def test_fresh_low_speed_engagement_starts_in_torque(self):
+  def test_route_opposing_reaction_torque_does_not_force_fallback_without_hands_on(self):
+    controller = self._handoff_controller()
+    # Route-derived signature from the first incident. rx-dev-src requires its
+    # filtered hands-on signal in addition to steeringPressed.
+    car_state = self._handoff_car_state(speed=6.85, angle=130.5, torque=-1.64, pressed=True)
+
+    controller._update_torque_active(car_state, True, 135.7)
+
+    assert not controller.torque_active
+
+  def test_confirmed_driver_override_enters_torque_fallback(self):
+    controller = self._handoff_controller()
+    controller.hands_on = True
+    car_state = self._handoff_car_state(torque=2.35, pressed=True)
+
+    controller._update_torque_active(car_state, True, 15.0)
+
+    assert controller.torque_active
+
+  def test_fresh_low_speed_engagement_starts_in_angle_when_epas_available(self):
     controller = self._handoff_controller(lat_active_last=False)
     car_state = self._handoff_car_state(speed=0.0)
 
     controller._update_torque_active(car_state, True, -25.4)
 
-    assert controller.torque_active
+    assert not controller.torque_active
 
-  def test_fresh_road_speed_engagement_can_start_in_angle(self):
+  def test_fresh_engagement_starts_in_torque_when_epas_not_available(self):
     controller = self._handoff_controller(lat_active_last=False)
-    car_state = self._handoff_car_state(speed=15.0)
+    car_state = self._handoff_car_state(eac_status=0)
 
     controller._update_torque_active(car_state, True, -25.4)
 
+    assert controller.torque_active
+
+  def test_inhibited_no_error_rearms_once_after_continuous_release(self):
+    controller = self._handoff_controller(torque_active=True)
+    car_state = self._handoff_car_state(eac_status=0)
+
+    for _ in range(ext_controller.EAC_REARM_RELEASE_FRAMES - 1):
+      controller._update_torque_active(car_state, True, 0.0)
+      assert controller.torque_active
+
+    controller._update_torque_active(car_state, True, 0.0)
+
     assert not controller.torque_active
+    assert controller.eac_rearm_attempted
+    assert controller.eac_dead_frames == 1
+
+  def test_inhibited_rearm_release_window_resets_on_driver_input(self):
+    controller = self._handoff_controller(torque_active=True)
+    car_state = self._handoff_car_state(eac_status=0)
+
+    for _ in range(ext_controller.EAC_REARM_RELEASE_FRAMES - 1):
+      controller._update_torque_active(car_state, True, 0.0)
+
+    car_state.out.steeringPressed = True
+    controller._update_torque_active(car_state, True, 0.0)
+    assert controller.eac_rearm_release_frames == 0
+    assert controller.torque_active
+
+    car_state.out.steeringPressed = False
+    controller._update_torque_active(car_state, True, 0.0)
+    assert controller.eac_rearm_release_frames == 1
+    assert controller.torque_active
+
+  def test_failed_inhibited_rearm_falls_back_without_repeated_probes(self):
+    controller = self._handoff_controller(torque_active=True)
+    car_state = self._handoff_car_state(eac_status=0)
+
+    for _ in range(ext_controller.EAC_REARM_RELEASE_FRAMES):
+      controller._update_torque_active(car_state, True, 0.0)
+    assert not controller.torque_active
+
+    for _ in range(ext_controller.EAC_RECOVER_FRAMES - 1):
+      controller._update_torque_active(car_state, True, 0.0)
+      assert not controller.torque_active
+    controller._update_torque_active(car_state, True, 0.0)
+    assert controller.torque_active
+
+    for _ in range(ext_controller.MIN_TORQUE_FRAMES + ext_controller.EAC_REARM_RELEASE_FRAMES):
+      controller._update_torque_active(car_state, True, 0.0)
+    assert controller.torque_active
+    assert controller.eac_rearm_attempted
+
+  def test_successful_inhibited_rearm_stays_in_angle(self):
+    controller = self._handoff_controller(torque_active=True)
+    car_state = self._handoff_car_state(eac_status=0)
+
+    for _ in range(ext_controller.EAC_REARM_RELEASE_FRAMES):
+      controller._update_torque_active(car_state, True, 0.0)
+    assert not controller.torque_active
+
+    car_state.eac_status = 2
+    controller._update_torque_active(car_state, True, 0.0)
+
+    assert not controller.torque_active
+    assert not controller.eac_rearm_attempted
+    assert controller.eac_dead_frames == 0
+
+  def test_inhibited_rearm_rejects_errors_and_faults(self):
+    for state in (
+      self._handoff_car_state(eac_status=0, eac_error_code=1),
+      self._handoff_car_state(eac_status=3),
+      self._handoff_car_state(eac_status=0, temporary_fault=True),
+      self._handoff_car_state(eac_status=0, permanent_fault=True),
+    ):
+      controller = self._handoff_controller(torque_active=True)
+      for _ in range(ext_controller.MIN_TORQUE_FRAMES + ext_controller.EAC_REARM_RELEASE_FRAMES):
+        controller._update_torque_active(state, True, 0.0)
+      assert controller.torque_active
+      assert not controller.eac_rearm_attempted
+
+  def test_inhibited_rearm_requires_settled_wheel_near_command(self):
+    unsafe_states = (
+      (self._handoff_car_state(eac_status=0, angle=100.0), 0.0),
+      (self._handoff_car_state(eac_status=0, rate=ext_controller.UNWIND_HANDOFF_RATE), 0.0),
+      (self._handoff_car_state(eac_status=0, angle=20.0), 0.0),
+    )
+    for state, desired_angle in unsafe_states:
+      controller = self._handoff_controller(torque_active=True)
+      for _ in range(ext_controller.MIN_TORQUE_FRAMES + ext_controller.EAC_REARM_RELEASE_FRAMES):
+        controller._update_torque_active(state, True, desired_angle)
+      assert controller.torque_active
+      assert not controller.eac_rearm_attempted
+
+  def test_inhibited_rearm_budget_resets_after_disengagement(self):
+    controller = self._handoff_controller(torque_active=True)
+    car_state = self._handoff_car_state(eac_status=0)
+
+    for _ in range(ext_controller.EAC_REARM_RELEASE_FRAMES):
+      controller._update_torque_active(car_state, True, 0.0)
+    assert controller.eac_rearm_attempted
+
+    controller._update_torque_active(car_state, False, 0.0)
+
+    assert not controller.torque_active
+    assert not controller.eac_rearm_attempted

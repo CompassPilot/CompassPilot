@@ -6,7 +6,7 @@ from collections import deque
 import numpy as np
 
 from opendbc.car.lateral import (apply_driver_steer_torque_limits, apply_steer_angle_limits_vm,
-                                 common_fault_avoidance, get_max_angle_delta_vm, get_max_angle_vm)
+                                 common_fault_avoidance, get_max_angle_delta_vm)
 from opendbc.car.rivian.values import CAR, CarControllerParams as CCP
 from opendbc.car.vehicle_model import VehicleModel
 
@@ -21,19 +21,17 @@ EPAS_FW_RATE_MARGIN = 0.94
 PANDA_STEP_MARGIN = 0.9
 
 MIN_TORQUE_FRAMES = 50
-DRIVER_RELEASE_FRAMES = 25
-LOW_SPEED_ANGLE_ENGAGE_MAX_MPS = 5.56
-OPPOSING_ANGLE_ERROR_DEG = 0.5
 HANDOFF_EXIT_DEG = 15.0
 UNWIND_HANDOFF_RATE = 40.0
 EAC_RECOVER_FRAMES = 15
+
+EAC_REARM_RELEASE_FRAMES = 25
 
 # Gen 1 EPAS can latch ToiFlt if the torque-request bit remains asserted at a
 # high steering angle. A two-frame request blip avoids that fault.
 TOI_MAX_ANGLE_DEG = 90
 TOI_MAX_ANGLE_FRAMES = 89
 TOI_BLIP_FRAMES = 2
-HIGH_ANGLE_TORQUE_CAP = 0.95
 
 
 class _RateBudget:
@@ -52,7 +50,7 @@ class _RateBudget:
     return cmd_oldest - budget, cmd_oldest + budget
 
 
-def get_safety_cp():
+def get_safety_CP():
   from opendbc.car.rivian.interface import CarInterface
   return CarInterface.get_non_essential_params(CAR.RIVIAN_R1_GEN1)
 
@@ -60,8 +58,9 @@ def get_safety_cp():
 class ExternalController:
   """Hybrid Gen 1 steering: EPAS angle control with cooperative torque fallback."""
 
-  def __init__(self):
-    self.VM = VehicleModel(get_safety_cp())
+  def __init__(self, CP):
+    self.VM = VehicleModel(CP)
+    self.VM_safety = VehicleModel(get_safety_CP())
 
     self.wheel_touch_cnt = 0
     self.torsion_cnt = 0
@@ -70,9 +69,10 @@ class ExternalController:
 
     self.torque_active = False
     self.torque_active_frames = 0
-    self.driver_release_frames = 0
     self.lat_active_last = False
     self.eac_dead_frames = 0
+    self.eac_rearm_release_frames = 0
+    self.eac_rearm_attempted = False
 
     self.apply_angle_last = 0.0
     self.angle_active = False
@@ -81,7 +81,6 @@ class ExternalController:
     self.angle_offset_deg = 0.0
 
     self.apply_torque_last = 0
-    self.apply_torque = 0
     self.toi_angle_limit_counter = 0
     self.toi_act_cmd = False
 
@@ -122,36 +121,43 @@ class ExternalController:
     self.torque_active_frames = self.torque_active_frames + 1 if self.torque_active else 0
     epas_ready = CS.eac_status == 1 and CS.eac_error_code == 0
     eac_active = CS.eac_status == 2
+    epas_inhibited = CS.eac_status == 0 and CS.eac_error_code == 0
     gap = abs(desired_angle - CS.out.steeringAngleDeg)
-    # steeringPressed reacts sooner than the capacitive/torsion hands-on filters.
-    # Only preempt angle control when the driver's torque opposes its requested direction.
-    driver_opposing_angle = (CS.out.steeringPressed and gap >= OPPOSING_ANGLE_ERROR_DEG and
-                             CS.out.steeringTorque * (desired_angle - CS.out.steeringAngleDeg) < 0.0)
 
-    # Do not hand control back to angle until the driver's input has been absent
-    # continuously; this prevents brief angle pulses during a manual turn.
-    if lat_active and not self.hands_on and not CS.out.steeringPressed:
-      self.driver_release_frames = min(self.driver_release_frames + 1, DRIVER_RELEASE_FRAMES)
+    if (lat_active and self.torque_active and epas_inhibited and
+        not self.hands_on and not CS.out.steeringPressed):
+      self.eac_rearm_release_frames = min(self.eac_rearm_release_frames + 1, EAC_REARM_RELEASE_FRAMES)
     else:
-      self.driver_release_frames = 0
+      self.eac_rearm_release_frames = 0
 
     if not lat_active:
       self.torque_active = False
-    elif driver_opposing_angle or (self.hands_on and CS.out.steeringPressed):
+      self.eac_rearm_attempted = False
+    elif self.hands_on and CS.out.steeringPressed:
       self.torque_active = True
+      self.eac_rearm_attempted = False
     elif self.eac_dead_frames >= EAC_RECOVER_FRAMES:
       self.torque_active = True
-    elif not self.lat_active_last and (not epas_ready or CS.out.vEgoRaw <= LOW_SPEED_ANGLE_ENGAGE_MAX_MPS):
+    elif not self.lat_active_last and not epas_ready:
       self.torque_active = True
-    elif (self.torque_active and self.torque_active_frames >= MIN_TORQUE_FRAMES and
-          self.driver_release_frames >= DRIVER_RELEASE_FRAMES and not CS.out.steeringPressed and epas_ready):
+      self.eac_rearm_attempted = False
+    elif self.torque_active and self.torque_active_frames >= MIN_TORQUE_FRAMES and not self.hands_on:
       fw_max = float(np.interp(CS.out.vEgoRaw, EPAS_FW_MAX_ANGLE_BP, EPAS_FW_MAX_ANGLE_V)) * EPAS_FW_ANGLE_MARGIN
       in_envelope = abs(CS.out.steeringAngleDeg) < fw_max
       threshold_dps = float(np.interp(CS.out.vEgoRaw, EPAS_FW_RATE_BP, EPAS_FW_RATE_V)) * 100.0
       lower, upper = self.rate_budget.bounds(threshold_dps, EPAS_FW_RATE_MARGIN)
       rate_settled = lower <= CS.out.steeringAngleDeg <= upper and abs(CS.out.steeringRateDeg) < UNWIND_HANDOFF_RATE
-      if in_envelope and rate_settled and gap < HANDOFF_EXIT_DEG:
+
+      rearm_ready = (epas_inhibited and not self.eac_rearm_attempted and
+                     self.eac_rearm_release_frames >= EAC_REARM_RELEASE_FRAMES and
+                     not CS.out.steeringPressed and not CS.out.steerFaultTemporary and
+                     not CS.out.steerFaultPermanent)
+      if (epas_ready or rearm_ready) and in_envelope and rate_settled and gap < HANDOFF_EXIT_DEG:
         self.torque_active = False
+        self.eac_rearm_attempted = rearm_ready
+
+    if eac_active:
+      self.eac_rearm_attempted = False
 
     if lat_active and not self.torque_active and not eac_active:
       self.eac_dead_frames += 1
@@ -162,12 +168,8 @@ class ExternalController:
   def _update_angle(self, CS, lat_active: bool, desired_angle: float) -> None:
     self.angle_active = lat_active and not self.torque_active
     v_lookahead = max(CS.out.vEgoRaw + max(CS.out.aEgo, 0.0), 1.0)
-    # Clip before rate limiting so a shrinking speed envelope cannot leave the
-    # command chasing a target which is already outside the VM safety bound.
-    vm_max_angle = get_max_angle_vm(v_lookahead, self.VM, CCP)
-    desired_angle = float(np.clip(desired_angle, -vm_max_angle, vm_max_angle))
     apply_angle = apply_steer_angle_limits_vm(desired_angle, self.apply_angle_last, v_lookahead,
-                                              CS.out.steeringAngleDeg, self.angle_active, CCP, self.VM)
+                                              CS.out.steeringAngleDeg, self.angle_active, CCP, self.VM_safety)
 
     if self.angle_active:
       fw_max = float(np.interp(CS.out.vEgoRaw, EPAS_FW_MAX_ANGLE_BP, EPAS_FW_MAX_ANGLE_V)) * EPAS_FW_ANGLE_MARGIN
@@ -175,7 +177,7 @@ class ExternalController:
       threshold_dps = float(np.interp(CS.out.vEgoRaw, EPAS_FW_RATE_BP, EPAS_FW_RATE_V)) * 100.0
       lower, upper = self.rate_budget.bounds(threshold_dps, EPAS_FW_RATE_MARGIN)
       apply_angle = float(np.clip(apply_angle, lower, upper))
-      step = get_max_angle_delta_vm(max(CS.out.vEgoRaw, 1.0), self.VM, CCP) * PANDA_STEP_MARGIN
+      step = get_max_angle_delta_vm(max(CS.out.vEgoRaw, 1.0), self.VM_safety, CCP) * PANDA_STEP_MARGIN
       apply_angle = float(np.clip(apply_angle, self.apply_angle_last - step, self.apply_angle_last + step))
 
     self.apply_angle_last = apply_angle
@@ -184,7 +186,6 @@ class ExternalController:
   def _update_torque(self, CS, actuators) -> None:
     if not self.torque_active:
       self.apply_torque_last = 0
-      self.apply_torque = 0
       self.toi_act_cmd = False
       self.toi_angle_limit_counter = 0
       return
@@ -193,9 +194,6 @@ class ExternalController:
     requested_torque = int(round(float(actuators.torque) * steer_max))
     torque_cmd = apply_driver_steer_torque_limits(requested_torque, self.apply_torque_last,
                                                   CS.out.steeringTorque, CCP, steer_max)
-    if abs(CS.out.steeringAngleDeg) > TOI_MAX_ANGLE_DEG:
-      high_angle_cap = round(steer_max * HIGH_ANGLE_TORQUE_CAP)
-      torque_cmd = int(np.clip(torque_cmd, -high_angle_cap, high_angle_cap))
 
     self.toi_angle_limit_counter, toi_act = common_fault_avoidance(
       abs(CS.out.steeringAngleDeg) >= TOI_MAX_ANGLE_DEG, self.torque_active,
@@ -206,5 +204,4 @@ class ExternalController:
       torque_cmd = 0
 
     self.apply_torque_last = torque_cmd
-    self.apply_torque = torque_cmd
     self.toi_act_cmd = toi_act

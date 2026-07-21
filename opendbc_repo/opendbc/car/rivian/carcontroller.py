@@ -3,8 +3,7 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus, structs
 from opendbc.car.lateral import apply_driver_steer_torque_limits, common_fault_avoidance
 from opendbc.car.interfaces import CarControllerBase
-from opendbc.car.rivian.ext_controller import (HIGH_ANGLE_TORQUE_CAP, TOI_BLIP_FRAMES, TOI_MAX_ANGLE_DEG,
-                                               TOI_MAX_ANGLE_FRAMES, ExternalController)
+from opendbc.car.rivian.ext_controller import TOI_BLIP_FRAMES, TOI_MAX_ANGLE_DEG, TOI_MAX_ANGLE_FRAMES, ExternalController
 from opendbc.car.rivian.riviancan import (create_acm_status, create_adas_status, create_angle_steering,
                                           create_lka_steering, create_longitudinal, create_wheel_touch)
 from opendbc.car.rivian.values import CarControllerParams, RivianFlags
@@ -28,12 +27,13 @@ class CarController(CarControllerBase):
     self.cancel_frames = 0
     self.toi_angle_limit_counter = 0
     self.angle_harness = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
-    self.ext_controller = ExternalController() if self.angle_harness else None
+    self.ext_controller = ExternalController(CP) if self.angle_harness else None
 
-  def update_live_params(self, roll, angle_offset_deg):
+  def update_live_params(self, roll, angle_offset_deg, stiffness_factor, steer_ratio):
     if self.ext_controller is not None:
       self.ext_controller.roll = roll
       self.ext_controller.angle_offset_deg = angle_offset_deg
+      self.ext_controller.VM.update_params(max(stiffness_factor, 0.1), max(steer_ratio, 0.1))
 
   def update(self, CC, CS, now_nanos, starpilot_toggles):
     actuators = CC.actuators
@@ -45,14 +45,11 @@ class CarController(CarControllerBase):
                                       CarControllerParams.STEER_MAX_LOOKUP[1])))
     if self.angle_harness:
       self.ext_controller.update(CS, lat_active, actuators)
-      apply_torque = self.ext_controller.apply_torque
+      apply_torque = self.ext_controller.apply_torque_last
     elif lat_active:
       new_torque = int(round(CC.actuators.torque * steer_max))
       apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
                                                       CS.out.steeringTorque, CarControllerParams, steer_max)
-      if abs(CS.out.steeringAngleDeg) > TOI_MAX_ANGLE_DEG:
-        high_angle_cap = round(steer_max * HIGH_ANGLE_TORQUE_CAP)
-        apply_torque = int(np.clip(apply_torque, -high_angle_cap, high_angle_cap))
 
     # Clear both the request bit and torque during the high-angle fault-avoidance window.
     if self.angle_harness:
