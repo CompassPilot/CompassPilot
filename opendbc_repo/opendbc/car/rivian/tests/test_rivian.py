@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from opendbc.car import Bus, structs
+from opendbc.car.rivian import carcontroller as rivian_carcontroller
 from opendbc.car.rivian import ext_controller
 from opendbc.car.rivian.carcontroller import CarController, get_longitudinal_accel
 from opendbc.car.rivian.carstate_ext import RivianLongitudinalState
@@ -68,6 +69,100 @@ class TestRivian:
     assert controller.ext_controller.roll == 0.05
     assert controller.ext_controller.angle_offset_deg == 1.25
     assert updates == [(0.8, 16.0)]
+
+  @staticmethod
+  def _controller_actuators(monkeypatch, *, angle_harness, torque_active, requested_torque, applied_torque):
+    monkeypatch.setattr(rivian_carcontroller, "create_lka_steering", lambda *args: None)
+    monkeypatch.setattr(rivian_carcontroller, "create_angle_steering", lambda *args: None)
+    monkeypatch.setattr(rivian_carcontroller, "create_acm_status", lambda *args: None)
+    monkeypatch.setattr(rivian_carcontroller, "apply_driver_steer_torque_limits", lambda *args: applied_torque)
+    monkeypatch.setattr(rivian_carcontroller, "common_fault_avoidance", lambda *args: (0, True))
+
+    controller = CarController.__new__(CarController)
+    controller.CP = SimpleNamespace(openpilotLongitudinalControl=False)
+    controller.packer = None
+    controller.frame = 1
+    controller.apply_torque_last = 0
+    controller.cancel_frames = 0
+    controller.toi_angle_limit_counter = 0
+    controller.angle_harness = angle_harness
+    controller.ext_controller = None
+    if angle_harness:
+      controller.ext_controller = SimpleNamespace(
+        update=lambda *args: None,
+        apply_torque_last=applied_torque,
+        toi_act_cmd=True,
+        apply_angle_last=12.0,
+        angle_active=not torque_active,
+        torque_active=torque_active,
+      )
+
+    output = SimpleNamespace()
+    actuators = SimpleNamespace(torque=requested_torque, accel=0.0, as_builder=lambda: output)
+    car_control = SimpleNamespace(
+      actuators=actuators,
+      latActive=True,
+      enabled=True,
+      cruiseControl=SimpleNamespace(cancel=False),
+    )
+    car_state = SimpleNamespace(
+      out=SimpleNamespace(
+        gearShifter=structs.CarState.GearShifter.drive,
+        vEgoRaw=10.0,
+        steeringTorque=0.0,
+        steeringAngleDeg=0.0,
+      ),
+      acm_lka_hba_cmd={},
+      vdm_adas_status=(),
+    )
+
+    return controller.update(car_control, car_state, 0, SimpleNamespace())[0]
+
+  def test_angle_channel_echoes_requested_torque(self, monkeypatch):
+    output = self._controller_actuators(
+      monkeypatch,
+      angle_harness=True,
+      torque_active=False,
+      requested_torque=0.42,
+      applied_torque=0,
+    )
+
+    assert output.torque == 0.42
+    assert output.torqueOutputCan == 0
+
+  def test_torque_fallback_reports_applied_can_torque(self, monkeypatch):
+    output = self._controller_actuators(
+      monkeypatch,
+      angle_harness=True,
+      torque_active=True,
+      requested_torque=0.42,
+      applied_torque=100,
+    )
+    steer_max = round(float(rivian_carcontroller.np.interp(
+      10.0,
+      rivian_carcontroller.CarControllerParams.STEER_MAX_LOOKUP[0],
+      rivian_carcontroller.CarControllerParams.STEER_MAX_LOOKUP[1],
+    )))
+
+    assert output.torque == 100 / steer_max
+    assert output.torqueOutputCan == 100
+
+  def test_torque_harness_reporting_is_unchanged(self, monkeypatch):
+    output = self._controller_actuators(
+      monkeypatch,
+      angle_harness=False,
+      torque_active=False,
+      requested_torque=0.42,
+      applied_torque=80,
+    )
+    steer_max = round(float(rivian_carcontroller.np.interp(
+      10.0,
+      rivian_carcontroller.CarControllerParams.STEER_MAX_LOOKUP[0],
+      rivian_carcontroller.CarControllerParams.STEER_MAX_LOOKUP[1],
+    )))
+
+    assert output.torque == 80 / steer_max
+    assert output.torqueOutputCan == 80
 
   @staticmethod
   def _longitudinal_parsers(scroll=0, scroll_click=0):

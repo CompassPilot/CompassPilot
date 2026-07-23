@@ -167,6 +167,8 @@ class TorqueBar(Widget):
     rivian_lateral_mode.update()
     # Angle-controlled cars, including Rivian's hybrid controller while its
     # angle channel is active, use a lateral-acceleration estimate for the bar.
+    # The shared Rivian mode detector keys off the actual CAN torque so the bar
+    # stays in angle mode while actuatorsOutput.torque echoes the request.
     if (ui_state.sm['controlsState'].lateralControlState.which() == 'angleState' or
         rivian_lateral_mode.mode == "angle"):
       controls_state = ui_state.sm['controlsState']

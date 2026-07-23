@@ -94,7 +94,11 @@ class CarController(CarControllerBase):
         can_sends.append(create_adas_status(self.packer, msg, interface_status))
 
     new_actuators = actuators.as_builder()
-    new_actuators.torque = apply_torque / steer_max
+    # In angle mode the CAN torque channel is idle, not safety-limited. Echo the
+    # request so steer_limited_by_safety stays false and saturation warnings work.
+    new_actuators.torque = (apply_torque / steer_max
+                            if not self.angle_harness or self.ext_controller.torque_active
+                            else float(actuators.torque))
     new_actuators.torqueOutputCan = apply_torque
     if self.angle_harness:
       new_actuators.steeringAngleDeg = self.ext_controller.apply_angle_last
