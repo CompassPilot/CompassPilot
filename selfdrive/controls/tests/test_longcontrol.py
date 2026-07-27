@@ -587,6 +587,81 @@ def test_rivian_final_stop_relaxes_inherited_stopping_command_to_hold_accel():
   assert output_accel == pytest.approx(-0.20)
 
 
+def test_rivian_final_stop_rate_limits_no_lead_route_stop_release():
+  CP = make_longcontrol_cp(brand="rivian")
+  lc = LongControl(CP)
+  lc.long_control_state = LongCtrlState.stopping
+  lc.last_output_accel = -1.807
+  CS = car.CarState.new_message(vEgo=1.174, aEgo=-2.2, brakePressed=False)
+  CS.cruiseState.standstill = False
+
+  output_accel = lc.update(
+    active=True,
+    CS=CS,
+    a_target=-1.508,
+    should_stop=True,
+    accel_limits=(-3.5, 2.0),
+    starpilot_toggles=make_toggles(stopAccel=-0.2),
+    has_lead=False,
+  )
+
+  expected_release = longcontrol.RIVIAN_FINAL_STOP_NO_LEAD_RELEASE_RATE * longcontrol.DT_CTRL
+  assert lc.long_control_state == LongCtrlState.stopping
+  assert output_accel == pytest.approx(-1.807 + expected_release)
+
+
+def test_rivian_final_stop_no_lead_route_converges_to_lead_tune_floor():
+  CP = make_longcontrol_cp(brand="rivian")
+  lc = LongControl(CP)
+  lc.long_control_state = LongCtrlState.stopping
+  lc.last_output_accel = -1.807
+  CS = car.CarState.new_message(vEgo=1.174, aEgo=-2.2, brakePressed=False)
+  CS.cruiseState.standstill = False
+
+  outputs = []
+  for frame in range(101):
+    CS.vEgo = 1.174 * (1.0 - frame / 100.0)
+    outputs.append(lc.update(
+      active=True,
+      CS=CS,
+      a_target=-1.508,
+      should_stop=True,
+      accel_limits=(-3.5, 2.0),
+      starpilot_toggles=make_toggles(stopAccel=-0.2),
+      has_lead=False,
+    ))
+
+  max_release_step = longcontrol.RIVIAN_FINAL_STOP_NO_LEAD_RELEASE_RATE * longcontrol.DT_CTRL
+  assert outputs[-1] == pytest.approx(-0.20)
+  assert all(0.0 <= current - previous <= max_release_step + 1e-9
+             for previous, current in zip([-1.807] + outputs[:-1], outputs, strict=True))
+
+
+@pytest.mark.parametrize(("brand", "brake_pressed"), [
+  ("toyota", False),
+  ("rivian", True),
+])
+def test_rivian_final_stop_no_lead_guards_leave_other_cases_unchanged(brand, brake_pressed):
+  CP = make_longcontrol_cp(brand=brand)
+  lc = LongControl(CP)
+  lc.long_control_state = LongCtrlState.stopping
+  lc.last_output_accel = -1.807
+  CS = car.CarState.new_message(vEgo=1.174, aEgo=-2.2, brakePressed=brake_pressed)
+  CS.cruiseState.standstill = False
+
+  output_accel = lc.update(
+    active=True,
+    CS=CS,
+    a_target=-1.508,
+    should_stop=True,
+    accel_limits=(-3.5, 2.0),
+    starpilot_toggles=make_toggles(stopAccel=-0.2),
+    has_lead=False,
+  )
+
+  assert output_accel == pytest.approx(-1.807)
+
+
 @pytest.mark.parametrize(("brand", "has_lead", "a_target", "v_ego", "brake_pressed"), [
   ("toyota", True, -0.45, 0.625, False),
   ("rivian", False, -0.45, 0.625, False),

@@ -23,6 +23,7 @@ RIVIAN_FINAL_STOP_ENTRY_ACCEL = -0.40
 RIVIAN_FINAL_STOP_HOLD_ACCEL_LIMIT = -0.20
 RIVIAN_FINAL_STOP_FULL_SOFTEN_TARGET = -0.50
 RIVIAN_FINAL_STOP_NO_SOFTEN_TARGET = -0.60
+RIVIAN_FINAL_STOP_NO_LEAD_RELEASE_RATE = 2.0
 
 LongCtrlState = car.CarControl.Actuators.LongControlState
 
@@ -209,13 +210,16 @@ class LongControl:
     return max(float(a_target), output_accel - float(follow_step))
 
   def _apply_rivian_final_stop_softening(self, output_accel, a_target, should_stop, has_lead, CS, starpilot_toggles):
-    if not self.is_rivian or not has_lead or CS.brakePressed:
+    no_lead_terminal_stop = (
+      not has_lead and should_stop and self.long_control_state == LongCtrlState.stopping
+    )
+    if not self.is_rivian or CS.brakePressed or (not has_lead and not no_lead_terminal_stop):
       return output_accel
     if output_accel >= 0.0 or CS.vEgo > RIVIAN_FINAL_STOP_MAX_SPEED:
       return output_accel
     if a_target >= 0.0 and not should_stop:
       return output_accel
-    if a_target <= RIVIAN_FINAL_STOP_NO_SOFTEN_TARGET:
+    if a_target <= RIVIAN_FINAL_STOP_NO_SOFTEN_TARGET and not no_lead_terminal_stop:
       return output_accel
 
     # Rivian can retain a stronger PID command into the stopping state, producing
@@ -227,6 +231,12 @@ class LongControl:
                                [0.0, RIVIAN_FINAL_STOP_MAX_SPEED],
                                [hold_accel, entry_accel]))
     softened_accel = max(float(output_accel), accel_floor)
+    if no_lead_terminal_stop:
+      # A planner stop without a lead can carry an urgent target and a much stronger
+      # inherited command into the final meter. Use the same terminal floor as the
+      # lead tune, but release toward it at bounded jerk to avoid an abrupt lurch.
+      return min(softened_accel, float(output_accel + RIVIAN_FINAL_STOP_NO_LEAD_RELEASE_RATE * DT_CTRL))
+
     soften_strength = float(interp(a_target,
                                    [RIVIAN_FINAL_STOP_NO_SOFTEN_TARGET, RIVIAN_FINAL_STOP_FULL_SOFTEN_TARGET],
                                    [0.0, 1.0]))
