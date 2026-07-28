@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from opendbc.car import Bus, structs
+from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.rivian import carcontroller as rivian_carcontroller
 from opendbc.car.rivian import ext_controller
 from opendbc.car.rivian.carcontroller import CarController, get_longitudinal_accel
@@ -163,6 +164,13 @@ class TestRivian:
 
     assert output.torque == 80 / steer_max
     assert output.torqueOutputCan == 80
+
+  def test_software_cruise_speed_request_is_clamped_to_rivian_bounds(self):
+    state = RivianLongitudinalState(SimpleNamespace(openpilotLongitudinalControl=True))
+
+    assert state.set_cruise_speed(45 * CV.MPH_TO_MS) == 45 * CV.MPH_TO_MS
+    assert state.set_cruise_speed(10 * CV.MPH_TO_MS) == 20 * CV.MPH_TO_MS
+    assert state.set_cruise_speed(100 * CV.MPH_TO_MS) == 85 * CV.MPH_TO_MS
 
   @staticmethod
   def _longitudinal_parsers(scroll=0, scroll_click=0):

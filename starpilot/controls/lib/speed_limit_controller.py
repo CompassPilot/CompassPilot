@@ -67,6 +67,7 @@ class SpeedLimitController:
     self.previous_road_name = ""
 
     self._slc_adopt_counter = 0
+    self._last_synced_set_speed = 0
 
     mapbox_requests_raw = self.starpilot_planner.params.get("MapBoxRequests", encoding="utf-8")
     try:
@@ -327,6 +328,22 @@ class SpeedLimitController:
       self.previous_road_name = current_road_name
 
       self.starpilot_planner.params.put_nonblocking("PreviousSpeedLimit", float(self.target))
+
+  def update_set_speed_sync(self, sm):
+    sync_enabled = bool(getattr(self.starpilot_toggles, "slc_sync_set_speed", False))
+    long_active = bool(sm["carControl"].longActive)
+    valid_limit = self.source != "None" and self.target > 0
+
+    if not sync_enabled or not long_active or not valid_limit:
+      self._last_synced_set_speed = 0
+      return
+
+    requested_set_speed = max(self.target + self.offset, self.overridden_speed)
+    if abs(requested_set_speed - self._last_synced_set_speed) < 0.01:
+      return
+
+    self.starpilot_planner.params_memory.put_float("SLCForceCruiseSpeed", requested_set_speed)
+    self._last_synced_set_speed = requested_set_speed
 
   def update_limits(self, dashboard_speed_limit, now, time_validated, v_cruise, v_ego, sm, display_only=False):
     self.update_map_speed_limit(v_ego, sm)
