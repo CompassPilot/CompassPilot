@@ -565,6 +565,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"SLCPriority", {PERSISTENT, STRING, "", "", 2}},
     {"SLCPriority1", {PERSISTENT, STRING, "Vision", "Map Data", 2}},
     {"SLCPriority2", {PERSISTENT, STRING, "Map Data", "Dashboard", 2}},
+    {"SLCSyncSetSpeed", {PERSISTENT, BOOL, "0", "0", 1}},
     {"SNGHack", {PERSISTENT, BOOL, "1", "0", 2, SETTINGS_SIMPLE}},
     {"SoundPack", {PERSISTENT, STRING, "stock", "stock", 0}},
     {"SoundToDownload", {CLEAR_ON_MANAGER_START, STRING, "", ""}},

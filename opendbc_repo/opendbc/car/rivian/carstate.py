@@ -106,6 +106,9 @@ class CarState(CarStateBase):
 
     return ret, fp_ret
 
+  def set_cruise_speed(self, speed: float) -> float:
+    return self.longitudinal_state.set_cruise_speed(speed)
+
   @staticmethod
   def get_can_parsers(CP):
     parsers = {

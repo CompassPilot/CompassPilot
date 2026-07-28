@@ -65,6 +65,11 @@ class RivianLongitudinalState:
     self._mads_prev_cruise_enabled = ret.cruiseState.enabled
     return button_events
 
+  def set_cruise_speed(self, speed: float) -> float:
+    if self.CP.openpilotLongitudinalControl:
+      self.set_speed = max(MIN_SET_SPEED, min(float(speed), MAX_SET_SPEED))
+    return self.set_speed
+
   def update_longitudinal_upgrade(self, ret: structs.CarState, can_parsers) -> list:
     cp_park = can_parsers[Bus.alt]
     cp_adas = can_parsers[Bus.adas]

@@ -284,7 +284,14 @@ class Car:
         new_cruise_kph = round(slc_force_speed * CV.MS_TO_KPH)
       else:
         new_cruise_kph = round(slc_force_speed * CV.MS_TO_MPH) * IMPERIAL_INCREMENT
-      self.v_cruise_helper.v_cruise_kph = max(min(new_cruise_kph, V_CRUISE_MAX), V_CRUISE_MIN)
+      new_cruise_kph = max(min(new_cruise_kph, V_CRUISE_MAX), V_CRUISE_MIN)
+      if self.CP.brand == "rivian" and getattr(self.starpilot_toggles, "slc_sync_set_speed", False):
+        # Rivian publishes its software-owned set speed as PCM cruise state on every cycle.
+        # Persist the SLC request there so the generic helper update is not immediately overwritten.
+        set_cruise_speed = getattr(self.CI.CS, "set_cruise_speed", None)
+        if callable(set_cruise_speed):
+          new_cruise_kph = set_cruise_speed(new_cruise_kph * CV.KPH_TO_MS) * CV.MS_TO_KPH
+      self.v_cruise_helper.v_cruise_kph = new_cruise_kph
       self.v_cruise_helper.v_cruise_cluster_kph = self.v_cruise_helper.v_cruise_kph
       self.params_memory.remove("SLCForceCruiseSpeed")
 

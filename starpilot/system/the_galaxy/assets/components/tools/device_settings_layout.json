@@ -1674,6 +1674,15 @@
         "settings_tier": "advanced"
       },
       {
+        "key": "SLCSyncSetSpeed",
+        "label": "Sync Set Speed with SLC",
+        "description": "While ACC is active, keep Comma's set speed synchronized with each accepted speed limit plus its configured offset on supported vehicles.",
+        "data_type": "bool",
+        "ui_type": "toggle",
+        "parent_key": "SpeedLimitController",
+        "settings_tier": "advanced"
+      },
+      {
         "key": "SLCFallback",
         "label": "Fallback Speed",
         "description": "Choose the speed to use when no speed limit source is currently available.",
