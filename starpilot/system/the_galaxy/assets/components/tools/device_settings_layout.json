@@ -139,7 +139,8 @@
         "data_type": "bool",
         "ui_type": "toggle",
         "is_parent_toggle": true,
-        "favorite_eligible": false
+        "favorite_eligible": false,
+        "settings_tier": "simple"
       },
       {
         "key": "MADSBrakeBehavior",
@@ -148,6 +149,7 @@
         "data_type": "int",
         "ui_type": "dropdown",
         "parent_key": "MADSMode",
+        "settings_tier": "simple",
         "options": [
           {"value": 0, "label": "Disengage MADS"},
           {"value": 1, "label": "Remain Active"}
