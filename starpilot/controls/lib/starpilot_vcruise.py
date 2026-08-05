@@ -580,6 +580,11 @@ class StarPilotVCruise:
       self.slc_offset = 0
       self.slc_target = 0
 
+    # Run after override calculation so the private Rivian set speed preserves
+    # the configured SLC override behavior. Calling this while SLC is disabled
+    # also resets its one-shot latch for a clean re-enable.
+    self.slc.update_set_speed_sync(sm)
+
     self.nav_turn_target = self._get_nav_turn_control_target(v_cruise, sm, starpilot_toggles)
 
     # Single tuning knob (signed feet -> meters). Defense clamp on top of UI bounds.

@@ -185,17 +185,28 @@ def _install_server_import_stubs():
   def _trigger_stub_favorite_action(key, params_memory=None):
     if params_memory is None:
       return False
-    counter_key = (
-      "FavoriteVirtualAccelCruiseCounter"
-      if str(key or "").endswith("distance_increase")
-      else "FavoriteVirtualDecelCruiseCounter"
-    )
+    action_name = str(key or "")
+    if action_name.endswith("aol_toggle"):
+      counter_key = "FavoriteAOLToggleCounter"
+    elif action_name.endswith("distance_increase"):
+      counter_key = "FavoriteVirtualAccelCruiseCounter"
+    else:
+      counter_key = "FavoriteVirtualDecelCruiseCounter"
     params_memory.put_int(counter_key, params_memory.get_int(counter_key) + 1)
     return True
 
   sys.modules["openpilot.starpilot.common.favorite_slots"] = _simple_module(
     "openpilot.starpilot.common.favorite_slots",
+    FAVORITE_ACTION_AOL_TOGGLE="__starpilot_favorite_action__:aol_toggle",
     FAVORITE_ACTION_OPTIONS=(
+      {
+        "key": "__starpilot_favorite_action__:aol_toggle",
+        "label": "Always On Lateral",
+        "description": "Turns the current drive's Always On Lateral state on or off without changing its master setting.",
+        "section": "Actions",
+        "action": "aolToggle",
+        "toggleAction": True,
+      },
       {
         "key": "__starpilot_favorite_action__:distance_decrease",
         "label": "Distance - / SET",

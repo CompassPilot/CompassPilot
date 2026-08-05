@@ -42,6 +42,7 @@ def make_toggles(**overrides):
     "is_metric": False,
     "map_speed_lookahead_higher": 0.0,
     "map_speed_lookahead_lower": 0.0,
+    "slc_sync_set_speed": False,
     "slc_fallback_previous_speed_limit": False,
     "slc_fallback_set_speed": False,
     "slc_mapbox_filler": False,
@@ -680,5 +681,114 @@ def test_manual_override_clears_after_sustained_disengage():
     assert controller.overridden_speed == 0
     assert not controller.override_slc
     assert not controller.override_requires_gas_release
+  finally:
+    controller.shutdown()
+
+
+def test_set_speed_sync_tracks_valid_active_limit_and_reapplies_on_engage():
+  controller = make_controller(
+    slc_sync_set_speed=True,
+    speed_limit_offset4=mph(2),
+  )
+  try:
+    active_sm = make_sm(gas_pressed=False, long_active=True)
+    controller.update_limits(mph(45), datetime.now(timezone.utc), False, mph(75), mph(40), active_sm)
+    controller.update_override(mph(75), 0.0, mph(40), 0.0, active_sm)
+    controller.update_set_speed_sync(active_sm)
+
+    assert controller.starpilot_planner.params_memory.get_float("SLCForceCruiseSpeed") == pytest.approx(mph(47))
+
+    controller.starpilot_planner.params_memory.remove("SLCForceCruiseSpeed")
+    controller.update_limits(mph(45), datetime.now(timezone.utc), False, mph(75), mph(40), active_sm)
+    controller.update_override(mph(75), 0.0, mph(40), 0.0, active_sm)
+    controller.update_set_speed_sync(active_sm)
+    assert controller.starpilot_planner.params_memory.get_float("SLCForceCruiseSpeed") == 0
+
+    inactive_sm = make_sm(gas_pressed=False, long_active=False)
+    controller.update_limits(mph(45), datetime.now(timezone.utc), False, mph(75), mph(40), inactive_sm)
+    controller.update_set_speed_sync(inactive_sm)
+    controller.update_limits(mph(45), datetime.now(timezone.utc), False, mph(75), mph(40), active_sm)
+    controller.update_override(mph(75), 0.0, mph(40), 0.0, active_sm)
+    controller.update_set_speed_sync(active_sm)
+
+    assert controller.starpilot_planner.params_memory.get_float("SLCForceCruiseSpeed") == pytest.approx(mph(47))
+  finally:
+    controller.shutdown()
+
+
+def test_set_speed_sync_waits_for_higher_limit_confirmation():
+  controller = make_controller(
+    slc_sync_set_speed=True,
+    speed_limit_confirmation_higher=True,
+  )
+  try:
+    controller.source = "Dashboard"
+    controller.target = mph(45)
+    controller.previous_source = "Dashboard"
+    controller.previous_target = mph(45)
+    controller.last_valid_limit = mph(45)
+
+    pending_sm = make_sm(gas_pressed=False, long_active=True)
+    controller.update_limits(mph(55), datetime.now(timezone.utc), False, mph(75), mph(45), pending_sm)
+    controller.update_override(mph(75), 0.0, mph(45), 0.0, pending_sm)
+    controller.update_set_speed_sync(pending_sm)
+
+    assert controller.unconfirmed_speed_limit == pytest.approx(mph(55))
+    assert controller.starpilot_planner.params_memory.get_float("SLCForceCruiseSpeed") == 0
+
+    accepted_sm = make_sm(gas_pressed=False, accel_pressed=True, long_active=True)
+    controller.update_limits(mph(55), datetime.now(timezone.utc), False, mph(75), mph(45), accepted_sm)
+    controller.update_override(mph(75), 0.0, mph(45), 0.0, accepted_sm)
+    controller.update_set_speed_sync(accepted_sm)
+
+    assert controller.target == pytest.approx(mph(55))
+    assert controller.source == "Dashboard"
+    assert controller.starpilot_planner.params_memory.get_float("SLCForceCruiseSpeed") == pytest.approx(mph(55))
+  finally:
+    controller.shutdown()
+
+
+def test_set_speed_sync_reapplies_after_parent_controller_is_disabled():
+  controller = make_controller(slc_sync_set_speed=True)
+  try:
+    active_sm = make_sm(gas_pressed=False, long_active=True)
+    controller.update_limits(mph(45), datetime.now(timezone.utc), False, mph(75), mph(40), active_sm)
+    controller.update_override(mph(75), 0.0, mph(40), 0.0, active_sm)
+    controller.update_set_speed_sync(active_sm)
+    assert controller.starpilot_planner.params_memory.get_float("SLCForceCruiseSpeed") == pytest.approx(mph(45))
+
+    controller.starpilot_planner.params_memory.remove("SLCForceCruiseSpeed")
+    controller.starpilot_toggles.slc_sync_set_speed = False
+    controller.update_set_speed_sync(active_sm)
+
+    controller.starpilot_toggles.slc_sync_set_speed = True
+    controller.update_set_speed_sync(active_sm)
+    assert controller.starpilot_planner.params_memory.get_float("SLCForceCruiseSpeed") == pytest.approx(mph(45))
+  finally:
+    controller.shutdown()
+
+
+@pytest.mark.parametrize(
+  ("override_manual", "override_set_speed", "expected_speed"),
+  [
+    (True, False, mph(55)),
+    (False, True, mph(75)),
+  ],
+)
+def test_set_speed_sync_preserves_slc_override_modes(override_manual, override_set_speed, expected_speed):
+  controller = make_controller(
+    slc_sync_set_speed=True,
+    speed_limit_controller_override_manual=override_manual,
+    speed_limit_controller_override_set_speed=override_set_speed,
+    speed_limit_offset4=mph(2),
+  )
+  try:
+    active_sm = make_sm(gas_pressed=True, long_active=True)
+    controller.update_limits(mph(45), datetime.now(timezone.utc), False, mph(75), mph(55), active_sm)
+    controller.update_override(mph(75), 0.0, mph(55), 0.0, active_sm)
+    controller.update_set_speed_sync(active_sm)
+
+    assert controller.overridden_speed == pytest.approx(expected_speed)
+    assert controller.starpilot_planner.params_memory.get_float("SLCForceCruiseSpeed") == pytest.approx(expected_speed)
   finally:
     controller.shutdown()

@@ -13,13 +13,23 @@ from openpilot.common.params import ParamKeyType, Params
 FAVORITE_SLOTS_PARAM = "StarPilotFavoriteSlots"
 FAVORITE_SLOT_COUNT = 3
 FAVORITE_ACTION_PREFIX = "__starpilot_favorite_action__:"
+FAVORITE_ACTION_AOL_TOGGLE = f"{FAVORITE_ACTION_PREFIX}aol_toggle"
 FAVORITE_ACTION_DISTANCE_DECREASE = f"{FAVORITE_ACTION_PREFIX}distance_decrease"
 FAVORITE_ACTION_DISTANCE_INCREASE = f"{FAVORITE_ACTION_PREFIX}distance_increase"
 FAVORITE_ACTION_TOGGLE_TRAFFIC_MODE = f"{FAVORITE_ACTION_PREFIX}toggle_traffic_mode"
+FAVORITE_ACTION_AOL_COUNTER = "FavoriteAOLToggleCounter"
 FAVORITE_ACTION_DECEL_COUNTER = "FavoriteVirtualDecelCruiseCounter"
 FAVORITE_ACTION_ACCEL_COUNTER = "FavoriteVirtualAccelCruiseCounter"
 FAVORITE_ACTION_TRAFFIC_MODE_COUNTER = "FavoriteTrafficModeCounter"
 FAVORITE_ACTION_OPTIONS = (
+  {
+    "key": FAVORITE_ACTION_AOL_TOGGLE,
+    "label": "Always On Lateral",
+    "description": "Turns the current drive's Always On Lateral state on or off without changing its master setting.",
+    "section": "Actions",
+    "action": "aolToggle",
+    "toggleAction": True,
+  },
   {
     "key": FAVORITE_ACTION_DISTANCE_DECREASE,
     "label": "Distance - / SET",
@@ -418,6 +428,10 @@ def normalize_favorite_slots(raw_slots: Any, params: Params | None = None,
     key = raw_slot.get("key")
     if key is not None:
       key = str(key).strip() or None
+    # Preserve StarPilot favorite configurations created before AOL gained a
+    # separate drive-scoped action. The persistent master remains untouched.
+    if key == "AlwaysOnLateral":
+      key = FAVORITE_ACTION_AOL_TOGGLE
 
     if key and is_favorite_action_key(key):
       pass
@@ -469,6 +483,7 @@ def trigger_favorite_action(key: str | None, params_memory: Params | None = None
 
   params_memory = params_memory or Params(memory=True)
   counter_key = {
+    FAVORITE_ACTION_AOL_TOGGLE: FAVORITE_ACTION_AOL_COUNTER,
     FAVORITE_ACTION_DISTANCE_DECREASE: FAVORITE_ACTION_DECEL_COUNTER,
     FAVORITE_ACTION_DISTANCE_INCREASE: FAVORITE_ACTION_ACCEL_COUNTER,
     FAVORITE_ACTION_TOGGLE_TRAFFIC_MODE: FAVORITE_ACTION_TRAFFIC_MODE_COUNTER,
