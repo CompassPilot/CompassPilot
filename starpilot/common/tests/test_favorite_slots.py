@@ -2,6 +2,8 @@ import json
 
 from openpilot.common.params import ParamKeyType
 from openpilot.starpilot.common.favorite_slots import (
+  FAVORITE_ACTION_AOL_COUNTER,
+  FAVORITE_ACTION_AOL_TOGGLE,
   FAVORITE_ACTION_ACCEL_COUNTER,
   FAVORITE_ACTION_DECEL_COUNTER,
   FAVORITE_ACTION_DISTANCE_DECREASE,
@@ -406,3 +408,16 @@ def test_get_favorite_param_value_and_get_favorite_values():
   assert active_idx == 2
   assert active_label == "Sport"
   assert len(opts) == 3
+
+
+def test_legacy_aol_favorite_uses_drive_scoped_action():
+  params = FakeParams()
+  memory = FakeParams()
+  params.put(FAVORITE_SLOTS_PARAM, [
+    {"enabled": True, "show_onroad": True, "key": "AlwaysOnLateral", "label": "Always On Lateral"},
+  ])
+
+  slots = load_favorite_slots(params)
+  assert slots[0]["key"] == FAVORITE_ACTION_AOL_TOGGLE
+  assert toggle_favorite_slot(0, params, memory) is True
+  assert memory.get_int(FAVORITE_ACTION_AOL_COUNTER) == 1

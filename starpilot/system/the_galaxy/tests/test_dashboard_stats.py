@@ -206,17 +206,30 @@ def _install_server_import_stubs():
   def _trigger_stub_favorite_action(key, params_memory=None):
     if params_memory is None:
       return False
-    counter_key = (
-      "FavoriteVirtualAccelCruiseCounter"
-      if str(key or "").endswith("distance_increase")
-      else "FavoriteVirtualDecelCruiseCounter"
-    )
+    action_name = str(key or "")
+    if action_name.endswith("aol_toggle"):
+      counter_key = "FavoriteAOLToggleCounter"
+    elif action_name.endswith("distance_increase"):
+      counter_key = "FavoriteVirtualAccelCruiseCounter"
+    elif action_name.endswith("toggle_traffic_mode"):
+      counter_key = "FavoriteTrafficModeCounter"
+    else:
+      counter_key = "FavoriteVirtualDecelCruiseCounter"
     params_memory.put_int(counter_key, params_memory.get_int(counter_key) + 1)
     return True
 
   sys.modules["openpilot.starpilot.common.favorite_slots"] = _simple_module(
     "openpilot.starpilot.common.favorite_slots",
+    FAVORITE_ACTION_AOL_TOGGLE="__starpilot_favorite_action__:aol_toggle",
     FAVORITE_ACTION_OPTIONS=(
+      {
+        "key": "__starpilot_favorite_action__:aol_toggle",
+        "label": "Always On Lateral",
+        "description": "Turns the current drive's Always On Lateral state on or off without changing its master setting.",
+        "section": "Actions",
+        "action": "aolToggle",
+        "toggleAction": True,
+      },
       {
         "key": "__starpilot_favorite_action__:distance_decrease",
         "label": "Distance - / SET",
@@ -230,12 +243,27 @@ def _install_server_import_stubs():
         "description": "Acts like a short press of the car's RES/+ cruise button.",
         "section": "Actions",
         "action": "accelCruise",
+      },
+      {
+        "key": "__starpilot_favorite_action__:toggle_traffic_mode",
+        "label": "Toggle Traffic Mode",
+        "description": "Engages or disengages Traffic Mode while openpilot is actively controlling.",
+        "section": "Actions",
+        "action": "trafficMode",
       },
     ),
     FAVORITE_SLOTS_PARAM="FavoriteSlots",
     SETTINGS_CATALOG_PATH=MODULE_DIR.parents[1] / "common/assets/device_settings_layout.json",
     build_favorite_slot_options=lambda *args, **kwargs: [
       {
+        "key": "__starpilot_favorite_action__:aol_toggle",
+        "label": "Always On Lateral",
+        "description": "Turns the current drive's Always On Lateral state on or off without changing its master setting.",
+        "section": "Actions",
+        "action": "aolToggle",
+        "toggleAction": True,
+      },
+      {
         "key": "__starpilot_favorite_action__:distance_decrease",
         "label": "Distance - / SET",
         "description": "Acts like a short press of the car's SET/- cruise button.",
@@ -248,6 +276,13 @@ def _install_server_import_stubs():
         "description": "Acts like a short press of the car's RES/+ cruise button.",
         "section": "Actions",
         "action": "accelCruise",
+      },
+      {
+        "key": "__starpilot_favorite_action__:toggle_traffic_mode",
+        "label": "Toggle Traffic Mode",
+        "description": "Engages or disengages Traffic Mode while openpilot is actively controlling.",
+        "section": "Actions",
+        "action": "trafficMode",
       },
     ],
     filter_favorite_slot_options=lambda options, capabilities=None: [

@@ -47,7 +47,7 @@ def test_galaxy_layout_removes_obsolete_and_duplicate_controls():
 def test_galaxy_layout_contains_basic_mode_controls():
   sections = _params_by_section(_layout())
 
-  assert {"AlwaysOnLateral", "LaneChanges", "QOLLateral"} <= sections["Lateral (Steering)"].keys()
+  assert {"AlwaysOnLateral", "AOLBrakeBehavior", "AOLStartupBehavior", "LaneChanges", "QOLLateral"} <= sections["Lateral (Steering)"].keys()
   assert {
     "ConditionalExperimental",
     "CurveSpeedController",

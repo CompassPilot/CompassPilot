@@ -807,6 +807,13 @@ class StarPilotVariables:
     toggle.warningImmediate_volume = max(self.get_value("WarningImmediateVolume", cast=float, condition=toggle.alert_volume_controller, default=25), 25)
 
     toggle.always_on_lateral = self.get_value("AlwaysOnLateral")
+    toggle.aol_brake_behavior = self.get_value(
+      "AOLBrakeBehavior", cast=int, condition=toggle.always_on_lateral, default=0, min=0, max=1,
+    )
+    toggle.aol_startup_behavior = self.get_value(
+      "AOLStartupBehavior", cast=int, condition=toggle.always_on_lateral, default=0, min=0, max=1,
+    )
+    toggle.aol_startup_enabled = toggle.aol_startup_behavior == 0
     lkas_button_assigned_to_aol = self.get_button_function("LKASButtonControl") == BUTTON_FUNCTIONS["AOL_TOGGLE"]
     toggle.ford_lkas_aol_toggle = toggle.car_make == "ford" and lkas_button_assigned_to_aol
     toggle.always_on_lateral_lkas = (
@@ -1134,6 +1141,34 @@ class StarPilotVariables:
     toggle.bookmark_via_lkas = lkas_button_control == BUTTON_FUNCTIONS["BOOKMARK"]
     self.set_favorite_button_flags(toggle, "lkas", lkas_button_control)
 
+    rivian_half_up_stalk_control = self.get_button_function(
+      "RivianHalfUpStalkControl", condition=toggle.car_make == "rivian",
+    )
+    toggle.rivian_half_up_stalk_enabled = rivian_half_up_stalk_control != BUTTON_FUNCTIONS["NOTHING"]
+    toggle.rivian_half_up_stalk_aol_toggle = (
+      toggle.always_on_lateral and rivian_half_up_stalk_control == BUTTON_FUNCTIONS["AOL_TOGGLE"]
+    )
+    toggle.experimental_mode_via_rivian_half_up = (
+      toggle.openpilot_longitudinal and rivian_half_up_stalk_control == BUTTON_FUNCTIONS["EXPERIMENTAL_MODE"]
+    )
+    toggle.experimental_mode_via_press |= toggle.experimental_mode_via_rivian_half_up
+    toggle.force_coast_via_rivian_half_up = (
+      toggle.openpilot_longitudinal and rivian_half_up_stalk_control == BUTTON_FUNCTIONS["FORCE_COAST"]
+    )
+    toggle.pause_lateral_via_rivian_half_up = rivian_half_up_stalk_control == BUTTON_FUNCTIONS["PAUSE_LATERAL"]
+    toggle.pause_longitudinal_via_rivian_half_up = (
+      toggle.openpilot_longitudinal and rivian_half_up_stalk_control == BUTTON_FUNCTIONS["PAUSE_LONGITUDINAL"]
+    )
+    toggle.personality_profile_via_rivian_half_up = (
+      toggle.openpilot_longitudinal and rivian_half_up_stalk_control == BUTTON_FUNCTIONS["PERSONALITY_PROFILE"]
+    )
+    toggle.switchback_mode_via_rivian_half_up = rivian_half_up_stalk_control == BUTTON_FUNCTIONS["SWITCHBACK_MODE"]
+    toggle.traffic_mode_via_rivian_half_up = (
+      toggle.openpilot_longitudinal and rivian_half_up_stalk_control == BUTTON_FUNCTIONS["TRAFFIC_MODE"]
+    )
+    toggle.bookmark_via_rivian_half_up = rivian_half_up_stalk_control == BUTTON_FUNCTIONS["BOOKMARK"]
+    self.set_favorite_button_flags(toggle, "rivian_half_up", rivian_half_up_stalk_control)
+
     has_canfd_media_buttons = toggle.car_make == "hyundai" and bool(CP.flags & HyundaiFlags.CANFD)
     mode_button_control = self.get_button_function("ModeButtonControl", condition=has_canfd_media_buttons)
     toggle.experimental_mode_via_mode = toggle.openpilot_longitudinal and mode_button_control == BUTTON_FUNCTIONS["EXPERIMENTAL_MODE"]
@@ -1343,6 +1378,10 @@ class StarPilotVariables:
 
     slc_available = speed_limit_controller_available(toggle.openpilot_longitudinal, toggle.redneck_cruise)
     toggle.speed_limit_controller = slc_available and self.get_value("SpeedLimitController")
+    toggle.slc_sync_set_speed = self.get_value(
+      "SLCSyncSetSpeed",
+      condition=toggle.speed_limit_controller and toggle.car_make == "rivian",
+    )
     set_speed_limit_on_engage = set_speed_limit_available(toggle.openpilot_longitudinal, toggle.has_cc_long, FPCP.pcmCruiseSpeed)
     speed_limit_display = toggle.show_speed_limits or toggle.speed_limit_controller
     toggle.map_speed_lookahead_higher = self.get_value("SLCLookaheadHigher", cast=float, condition=speed_limit_display)

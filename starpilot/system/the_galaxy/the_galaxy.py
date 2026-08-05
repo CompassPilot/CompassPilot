@@ -76,6 +76,7 @@ from openpilot.starpilot.common.maps_catalog import (
 from openpilot.starpilot.common.maps_download_progress import load_size_cache, nonnegative_int, selection_key
 from openpilot.starpilot.common.experimental_state import sync_persist_chill_state, sync_persist_experimental_state
 from openpilot.starpilot.common.favorite_slots import (
+  FAVORITE_ACTION_AOL_TOGGLE,
   FAVORITE_SLOTS_PARAM,
   SETTINGS_CATALOG_PATH,
   build_favorite_slot_options,
@@ -3306,10 +3307,16 @@ def _get_available_controller_action_options():
 
 
 def _favorite_slot_values(options):
-  return get_favorite_values(options, params)
+  values = get_favorite_values(options, params)
+  if any(option.get("key") == FAVORITE_ACTION_AOL_TOGGLE for option in options):
+    values[FAVORITE_ACTION_AOL_TOGGLE] = params_memory.get_bool("AOLActive")
+  return values
 
 def _configured_favorite_slot_values(slots):
-  return get_favorite_values(slots, params)
+  values = get_favorite_values(slots, params)
+  if any(slot.get("key") == FAVORITE_ACTION_AOL_TOGGLE for slot in slots):
+    values[FAVORITE_ACTION_AOL_TOGGLE] = params_memory.get_bool("AOLActive")
+  return values
 
 _cached_allowed_keys = None
 _cached_param_types = None
@@ -5612,12 +5619,17 @@ def setup(app):
         }), 200
 
       # 1. Prevent changing the model or reboot-required toggles while the car is actively driving
-      reboot_keys = {"Model", "DrivingModel", "AlwaysOnLateral", "DisableOpenpilotLongitudinal", "ForceTorqueController", "NNFF", "NNFFLite"}
+      reboot_keys = {"Model", "DrivingModel", "AlwaysOnLateral", "AOLBrakeBehavior", "AOLStartupBehavior",
+                     "RivianHalfUpStalkControl",
+                     "DisableOpenpilotLongitudinal", "ForceTorqueController", "NNFF", "NNFFLite"}
       if key in reboot_keys and params.get_bool("IsOnroad"):
         friendly_names = {
           "Model": "Driving Model",
           "DrivingModel": "Driving Model",
           "AlwaysOnLateral": "Always On Lateral",
+          "AOLBrakeBehavior": "AOL Brake Behavior",
+          "AOLStartupBehavior": "AOL Startup Behavior",
+          "RivianHalfUpStalkControl": "Rivian Half-Up Stalk Control",
           "DisableOpenpilotLongitudinal": "Disable openpilot Longitudinal",
           "ForceTorqueController": "Force Torque Controller",
           "NNFF": "NNFF",
@@ -5642,6 +5654,36 @@ def setup(app):
         return jsonify({"error": "Cannot flash Panda firmware while driving."}), 403
       if key in PANDA_FIRMWARE_TOGGLE_KEYS and data.get(PANDA_FIRMWARE_CONFIRMATION_FIELD) is not True:
         return jsonify({"error": "Panda firmware changes require confirmation before flashing."}), 409
+
+      if key in {"AOLBrakeBehavior", "AOLStartupBehavior"}:
+        try:
+          behavior = int(str_val)
+        except (TypeError, ValueError):
+          return jsonify({"error": f"{key} must be 0 or 1."}), 400
+        if behavior not in (0, 1):
+          return jsonify({"error": f"{key} must be 0 or 1."}), 400
+
+        params.put_int(key, behavior)
+        update_starpilot_toggles()
+        return jsonify({
+          "message": f"{key} updated successfully. The change applies on the next drive.",
+          "updated": {key: behavior},
+        }), 200
+
+      if key == "RivianHalfUpStalkControl":
+        try:
+          stalk_control = int(str_val)
+        except (TypeError, ValueError):
+          return jsonify({"error": "Rivian half-up stalk control is invalid."}), 400
+        if stalk_control not in {0, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13}:
+          return jsonify({"error": "Rivian half-up stalk control is invalid."}), 400
+
+        params.put_int(key, stalk_control)
+        update_starpilot_toggles()
+        return jsonify({
+          "message": "Rivian half-up stalk control updated. The change applies on the next drive.",
+          "updated": {key: stalk_control},
+        }), 200
 
       if key in {"LeadIndicator", "HideLeadMarker"}:
         enabled = str_val.strip() in ("1", "true", "True")

@@ -49,6 +49,13 @@ class FakeParamsBackend:
     self.writes.append((key, bool(value)))
     self.values[key] = bool(value)
 
+  def get_int(self, key, default=0):
+    return int(self.values.get(key, default))
+
+  def put_int(self, key, value):
+    self.writes.append((key, int(value)))
+    self.values[key] = int(value)
+
   def get(self, key, block=False):
     return self.values.get(key)
 
@@ -89,7 +96,7 @@ class WritableFakeParams:
     self.values.pop(key, None)
 
 
-def _params_client(monkeypatch, values, device_type):
+def _params_client(monkeypatch, values, device_type, allowed_types=None):
   fake_params = WritableFakeParams(values)
   monkeypatch.setattr(the_galaxy, "params", fake_params)
   monkeypatch.setattr(
@@ -558,13 +565,14 @@ def test_ford_lateral_mode_is_editable_through_galaxy(monkeypatch):
   assert ("FordLateralMode", "2") in fake_params.writes
 
 
-def test_favorite_slot_options_include_virtual_cruise_actions(monkeypatch):
+def test_favorite_slot_options_include_live_aol_and_virtual_cruise_actions(monkeypatch):
   monkeypatch.setattr(the_galaxy, "_favorite_slot_options", None)
   monkeypatch.setattr(the_galaxy, "_get_param_type_info", lambda: (set(), {}))
 
   options = the_galaxy._get_favorite_slot_options()
   option_keys = {option["key"] for option in options}
 
+  assert "__starpilot_favorite_action__:aol_toggle" in option_keys
   assert "__starpilot_favorite_action__:distance_decrease" in option_keys
   assert "__starpilot_favorite_action__:distance_increase" in option_keys
 
@@ -719,3 +727,68 @@ def test_curve_speed_controller_reset_rejected_onroad(monkeypatch):
   assert response.get_json()["error"] == "Curve Speed Controller data can only be reset while parked."
   assert fake_params.writes == []
   assert fake_params.removals == []
+
+
+def test_aol_configuration_rejects_onroad_changes(monkeypatch):
+  allowed_types = {
+    "AlwaysOnLateral": bool,
+    "AOLBrakeBehavior": int,
+    "AOLStartupBehavior": int,
+    "RivianHalfUpStalkControl": int,
+  }
+
+  for key, value in (
+    ("AlwaysOnLateral", True),
+    ("AOLBrakeBehavior", 1),
+    ("AOLStartupBehavior", 1),
+    ("RivianHalfUpStalkControl", 9),
+  ):
+    client, fake_params = _params_client(monkeypatch, {"IsOnroad": True}, "mici", allowed_types)
+    response = client.put("/api/params", json={"key": key, "value": value})
+    assert response.status_code == 403
+    assert fake_params.writes == []
+
+
+def test_aol_behaviors_accept_only_explicit_choices(monkeypatch):
+  allowed_types = {"AOLBrakeBehavior": int, "AOLStartupBehavior": int}
+
+  for key in allowed_types:
+    client, fake_params = _params_client(monkeypatch, {"IsOnroad": False, key: 0}, "mici", allowed_types)
+    response = client.put("/api/params", json={"key": key, "value": 1})
+    assert response.status_code == 200
+    assert response.get_json()["updated"] == {key: 1}
+    assert fake_params.values[key] == 1
+
+    response = client.put("/api/params", json={"key": key, "value": 2})
+    assert response.status_code == 400
+    assert fake_params.values[key] == 1
+
+
+def test_rivian_half_up_stalk_control_validates_button_actions(monkeypatch):
+  allowed_types = {"RivianHalfUpStalkControl": int}
+  client, fake_params = _params_client(
+    monkeypatch, {"IsOnroad": False, "RivianHalfUpStalkControl": 0}, "mici", allowed_types,
+  )
+
+  response = client.put("/api/params", json={"key": "RivianHalfUpStalkControl", "value": 9})
+  assert response.status_code == 200
+  assert fake_params.values["RivianHalfUpStalkControl"] == 9
+
+  response = client.put("/api/params", json={"key": "RivianHalfUpStalkControl", "value": 10})
+  assert response.status_code == 400
+  assert fake_params.values["RivianHalfUpStalkControl"] == 9
+
+
+def test_aol_live_action_replaces_master_in_favorite_options(monkeypatch):
+  monkeypatch.setattr(
+    the_galaxy,
+    "_get_param_type_info",
+    lambda: ({"AlwaysOnLateral", "RivianAngleControl"}, {"AlwaysOnLateral": bool, "RivianAngleControl": bool}),
+  )
+  monkeypatch.setattr(the_galaxy, "_favorite_slot_options", None)
+
+  option_keys = {option["key"] for option in the_galaxy._get_favorite_slot_options()}
+
+  assert "AlwaysOnLateral" not in option_keys
+  assert "__starpilot_favorite_action__:aol_toggle" in option_keys
+  assert "RivianAngleControl" in option_keys

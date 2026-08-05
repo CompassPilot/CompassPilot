@@ -789,6 +789,193 @@ def test_elantra_stopped_lead_handoff_releases_for_moving_lead_and_other_cars():
   assert other_car.shape_hyundai_elantra_lead_target(0.14, 1.1, False, (stopped_lead,)) == pytest.approx(0.14)
 
 
+def test_rivian_final_stop_softens_mild_pid_braking_with_a_lead():
+  CP = make_longcontrol_cp(brand="rivian")
+  lc = LongControl(CP)
+  lc.long_control_state = LongCtrlState.pid
+  CS = car.CarState.new_message(vEgo=0.625, aEgo=0.0, brakePressed=False)
+  CS.cruiseState.standstill = False
+
+  output_accel = lc.update(
+    active=True,
+    CS=CS,
+    a_target=-0.45,
+    should_stop=False,
+    accel_limits=(-3.5, 2.0),
+    starpilot_toggles=make_toggles(stopAccel=-0.2),
+    has_lead=True,
+  )
+
+  assert lc.long_control_state == LongCtrlState.pid
+  assert output_accel == pytest.approx(-0.30)
+
+
+def test_rivian_final_stop_blends_moderate_braking_into_the_softer_ramp():
+  CP = make_longcontrol_cp(brand="rivian")
+  lc = LongControl(CP)
+  lc.long_control_state = LongCtrlState.pid
+  CS = car.CarState.new_message(vEgo=0.625, aEgo=0.0, brakePressed=False)
+  CS.cruiseState.standstill = False
+
+  output_accel = lc.update(
+    active=True,
+    CS=CS,
+    a_target=-0.55,
+    should_stop=False,
+    accel_limits=(-3.5, 2.0),
+    starpilot_toggles=make_toggles(stopAccel=-0.2),
+    has_lead=True,
+  )
+
+  assert lc.long_control_state == LongCtrlState.pid
+  assert output_accel == pytest.approx(-0.425)
+
+
+def test_rivian_final_stop_relaxes_inherited_stopping_command_to_hold_accel():
+  CP = make_longcontrol_cp(brand="rivian")
+  lc = LongControl(CP)
+  lc.long_control_state = LongCtrlState.stopping
+  lc.last_output_accel = -0.40
+  CS = car.CarState.new_message(vEgo=0.0, aEgo=0.0, brakePressed=False)
+  CS.cruiseState.standstill = False
+
+  output_accel = lc.update(
+    active=True,
+    CS=CS,
+    a_target=-0.20,
+    should_stop=True,
+    accel_limits=(-3.5, 2.0),
+    starpilot_toggles=make_toggles(stopAccel=-0.2),
+    has_lead=True,
+  )
+
+  assert lc.long_control_state == LongCtrlState.stopping
+  assert output_accel == pytest.approx(-0.20)
+
+
+def test_rivian_final_stop_rate_limits_no_lead_route_stop_release():
+  CP = make_longcontrol_cp(brand="rivian")
+  lc = LongControl(CP)
+  lc.long_control_state = LongCtrlState.stopping
+  lc.last_output_accel = -1.807
+  CS = car.CarState.new_message(vEgo=1.174, aEgo=-2.2, brakePressed=False)
+  CS.cruiseState.standstill = False
+
+  output_accel = lc.update(
+    active=True,
+    CS=CS,
+    a_target=-1.508,
+    should_stop=True,
+    accel_limits=(-3.5, 2.0),
+    starpilot_toggles=make_toggles(stopAccel=-0.2),
+    has_lead=False,
+  )
+
+  expected_release = longcontrol.RIVIAN_FINAL_STOP_NO_LEAD_RELEASE_RATE * longcontrol.DT_CTRL
+  assert lc.long_control_state == LongCtrlState.stopping
+  assert output_accel == pytest.approx(-1.807 + expected_release)
+
+
+def test_rivian_final_stop_no_lead_route_converges_to_lead_tune_floor():
+  CP = make_longcontrol_cp(brand="rivian")
+  lc = LongControl(CP)
+  lc.long_control_state = LongCtrlState.stopping
+  lc.last_output_accel = -1.807
+  CS = car.CarState.new_message(vEgo=1.174, aEgo=-2.2, brakePressed=False)
+  CS.cruiseState.standstill = False
+
+  outputs = []
+  for frame in range(101):
+    CS.vEgo = 1.174 * (1.0 - frame / 100.0)
+    outputs.append(lc.update(
+      active=True,
+      CS=CS,
+      a_target=-1.508,
+      should_stop=True,
+      accel_limits=(-3.5, 2.0),
+      starpilot_toggles=make_toggles(stopAccel=-0.2),
+      has_lead=False,
+    ))
+
+  max_release_step = longcontrol.RIVIAN_FINAL_STOP_NO_LEAD_RELEASE_RATE * longcontrol.DT_CTRL
+  assert outputs[-1] == pytest.approx(-0.20)
+  assert all(0.0 <= current - previous <= max_release_step + 1e-9
+             for previous, current in zip([-1.807] + outputs[:-1], outputs, strict=True))
+
+
+@pytest.mark.parametrize(("brand", "brake_pressed"), [
+  ("toyota", False),
+  ("rivian", True),
+])
+def test_rivian_final_stop_no_lead_guards_leave_other_cases_unchanged(brand, brake_pressed):
+  CP = make_longcontrol_cp(brand=brand)
+  lc = LongControl(CP)
+  lc.long_control_state = LongCtrlState.stopping
+  lc.last_output_accel = -1.807
+  CS = car.CarState.new_message(vEgo=1.174, aEgo=-2.2, brakePressed=brake_pressed)
+  CS.cruiseState.standstill = False
+
+  output_accel = lc.update(
+    active=True,
+    CS=CS,
+    a_target=-1.508,
+    should_stop=True,
+    accel_limits=(-3.5, 2.0),
+    starpilot_toggles=make_toggles(stopAccel=-0.2),
+    has_lead=False,
+  )
+
+  assert output_accel == pytest.approx(-1.807)
+
+
+@pytest.mark.parametrize(("brand", "has_lead", "a_target", "v_ego", "brake_pressed"), [
+  ("toyota", True, -0.45, 0.625, False),
+  ("rivian", False, -0.45, 0.625, False),
+  ("rivian", True, -0.60, 0.625, False),
+  ("rivian", True, -0.45, 1.50, False),
+  ("rivian", True, -0.45, 0.625, True),
+])
+def test_rivian_final_stop_guards_leave_other_cases_unchanged(brand, has_lead, a_target, v_ego, brake_pressed):
+  CP = make_longcontrol_cp(brand=brand)
+  lc = LongControl(CP)
+  lc.long_control_state = LongCtrlState.pid
+  CS = car.CarState.new_message(vEgo=v_ego, aEgo=0.0, brakePressed=brake_pressed)
+  CS.cruiseState.standstill = False
+
+  output_accel = lc.update(
+    active=True,
+    CS=CS,
+    a_target=a_target,
+    should_stop=False,
+    accel_limits=(-3.5, 2.0),
+    starpilot_toggles=make_toggles(stopAccel=-0.2),
+    has_lead=has_lead,
+  )
+
+  assert output_accel == pytest.approx(a_target)
+
+
+def test_rivian_final_stop_respects_stronger_configured_hold_accel():
+  CP = make_longcontrol_cp(brand="rivian")
+  lc = LongControl(CP)
+  lc.long_control_state = LongCtrlState.stopping
+  lc.last_output_accel = -0.70
+  CS = car.CarState.new_message(vEgo=0.0, aEgo=0.0, brakePressed=False)
+  CS.cruiseState.standstill = False
+
+  output_accel = lc.update(
+    active=True,
+    CS=CS,
+    a_target=-0.20,
+    should_stop=True,
+    accel_limits=(-3.5, 2.0),
+    starpilot_toggles=make_toggles(stopAccel=-0.5),
+    has_lead=True,
+  )
+
+  assert output_accel == pytest.approx(-0.50)
+
+
 def test_volt_testing_ground_handoff_freezes_integrator(monkeypatch):
   CP = car.CarParams.new_message()
   CP.brand = "gm"

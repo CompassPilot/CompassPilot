@@ -12,6 +12,19 @@ import opendbc.safety.tests.common as common
 from opendbc.safety.tests.common import CANPackerSafety
 from opendbc.car.rivian.values import RivianSafetyFlags
 from opendbc.car.rivian.riviancan import checksum as _checksum
+from opendbc.safety import ALTERNATIVE_EXPERIENCE
+
+
+def get_safety_vm():
+  CP = CarParams()
+  CP.mass = 3206. + STD_CARGO_KG
+  CP.wheelbase = 3.08
+  CP.centerToFront = CP.wheelbase * 0.5
+  CP.steerRatio = 15.2
+  CP.steerRatioRear = 0.
+  CP.rotationalInertia = scale_rot_inertia(CP.mass, CP.wheelbase)
+  CP.tireStiffnessFront, CP.tireStiffnessRear = scale_tire_stiffness(CP.mass, CP.wheelbase, CP.centerToFront, 1.0)
+  return VehicleModel(CP)
 
 
 def get_safety_vm():

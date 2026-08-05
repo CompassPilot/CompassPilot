@@ -139,6 +139,32 @@
         "settings_tier": "simple"
       },
       {
+        "key": "AOLStartupBehavior",
+        "label": "AOL at Startup",
+        "description": "Choose whether Always On Lateral starts enabled when the vehicle first becomes ready to drive or waits for ACC/openpilot engagement.",
+        "data_type": "int",
+        "ui_type": "dropdown",
+        "parent_key": "AlwaysOnLateral",
+        "settings_tier": "simple",
+        "options": [
+          {"value": 0, "label": "Start Enabled"},
+          {"value": 1, "label": "Start Off"}
+        ]
+      },
+      {
+        "key": "AOLBrakeBehavior",
+        "label": "AOL Brake Behavior",
+        "description": "Choose whether pressing the brake disengages Always On Lateral or leaves its drive-scoped state active.",
+        "data_type": "int",
+        "ui_type": "dropdown",
+        "parent_key": "AlwaysOnLateral",
+        "settings_tier": "simple",
+        "options": [
+          {"value": 0, "label": "Disengage AOL"},
+          {"value": 1, "label": "Remain Active"}
+        ]
+      },
+      {
         "key": "PauseAOLOnBrake",
         "label": "Pause on Brake Press Below",
         "description": "Pause \"Always On Lateral\" below the set speed while the brake pedal is pressed.",
@@ -1980,6 +2006,15 @@
         "label": "Match Speed Limit on Engage",
         "description": "When openpilot is first enabled, automatically set the max speed to the current posted limit.",
         "picker_description": "Matches the speed limit when openpilot engages.",
+        "data_type": "bool",
+        "ui_type": "toggle",
+        "parent_key": "SpeedLimitController",
+        "settings_tier": "advanced"
+      },
+      {
+        "key": "SLCSyncSetSpeed",
+        "label": "Sync Set Speed with SLC",
+        "description": "While ACC is active, keep Comma's set speed synchronized with each accepted speed limit plus its configured offset on supported vehicles.",
         "data_type": "bool",
         "ui_type": "toggle",
         "parent_key": "SpeedLimitController",
@@ -3849,6 +3884,65 @@
             "value": 14,
             "label": "Pulse and Glide",
             "developer_only": true
+          }
+        ],
+        "settings_tier": "simple"
+      },
+      {
+        "key": "RivianHalfUpStalkControl",
+        "label": "Drive Stalk (Half-Up)",
+        "description": "Action performed by Rivian's slight-up drive-stalk position while ACC is off. Full-up always turns off Always On Lateral.",
+        "data_type": "int",
+        "ui_type": "dropdown",
+        "requires_capability": "IsRivian",
+        "options": [
+          {
+            "value": 0,
+            "label": "No Action"
+          },
+          {
+            "value": 2,
+            "label": "Force Coast"
+          },
+          {
+            "value": 3,
+            "label": "Pause Steering"
+          },
+          {
+            "value": 4,
+            "label": "Pause Accel/Brake"
+          },
+          {
+            "value": 5,
+            "label": "Toggle Experimental"
+          },
+          {
+            "value": 6,
+            "label": "Toggle Traffic"
+          },
+          {
+            "value": 7,
+            "label": "Toggle Switchback"
+          },
+          {
+            "value": 8,
+            "label": "Create Bookmark"
+          },
+          {
+            "value": 9,
+            "label": "Toggle Always On Lateral"
+          },
+          {
+            "value": 11,
+            "label": "Favorite #1"
+          },
+          {
+            "value": 12,
+            "label": "Favorite #2"
+          },
+          {
+            "value": 13,
+            "label": "Favorite #3"
           }
         ],
         "settings_tier": "simple"

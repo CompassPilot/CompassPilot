@@ -133,6 +133,7 @@ SAFE_MODE_MANAGED_KEYS = (
   "CurveSpeedController",
   "SpeedLimitController",
   "SetSpeedLimit",
+  "SLCSyncSetSpeed",
   "SLCFallback",
   "SLCMapboxFiller",
   "SLCOverride",

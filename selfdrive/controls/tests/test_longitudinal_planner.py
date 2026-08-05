@@ -688,6 +688,20 @@ def test_gm_pedal_vehicle_min_accel_uses_brand_when_car_name_is_missing():
   assert get_vehicle_min_accel(CP, 32.4) == pytest.approx(-2.95)
 
 
+def test_rivian_planner_uses_physical_vehicle_speed_when_cluster_runs_high():
+  CP = SimpleNamespace(carName="rivian", brand="rivian", enableGasInterceptorDEPRECATED=False)
+  car_state = SimpleNamespace(vEgo=20.0, vEgoCluster=21.0)
+
+  assert get_planner_v_ego(CP, car_state) == pytest.approx(20.0)
+
+
+def test_non_rivian_planner_preserves_cluster_speed_behavior():
+  CP = SimpleNamespace(carName="toyota", brand="toyota", enableGasInterceptorDEPRECATED=False)
+  car_state = SimpleNamespace(vEgo=20.0, vEgoCluster=21.0)
+
+  assert get_planner_v_ego(CP, car_state) == pytest.approx(21.0)
+
+
 @pytest.mark.parametrize("model_version", ["v11", "v12", "v13", "v14", "v15"])
 def test_acc_mode_uses_close_raw_lead_when_tracking_lead_is_debounced(model_version):
   v_ego = 5.0
