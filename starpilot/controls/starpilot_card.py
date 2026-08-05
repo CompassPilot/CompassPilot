@@ -245,6 +245,28 @@ class StarPilotCard:
       if hyundai_aol_needs_engagement:
         self.hyundai_aol_ready = True
       self.always_on_lateral_allowed = True
+      self.aol_startup_pending = False
+
+    rivian_half_up_pressed = rivian_aol and any(
+      be.pressed and be_type == ButtonType.lkas
+      for be, be_type in zip(carState.buttonEvents, button_event_types, strict=False)
+    )
+    if (rivian_half_up_pressed and getattr(starpilot_toggles, "rivian_half_up_stalk_aol_toggle", False) and
+        not (carState.cruiseState.enabled or self.prev_cruise_enabled)):
+      self.toggle_aol_latch()
+
+    rivian_full_up_pressed = rivian_aol and any(
+      be.pressed and be_type == ButtonType.altButton2
+      for be, be_type in zip(carState.buttonEvents, button_event_types, strict=False)
+    )
+    preserve_reverse_latch = self.hyundai_preserve_aol_across_reverse and carState.gearShifter == GearShifter.reverse
+    left_driving_gear = self.aol_driving_seen and not driving_gear and not preserve_reverse_latch
+    disengage_on_brake = getattr(starpilot_toggles, "aol_brake_behavior", 1) == 0
+    if aol_configured and (rivian_full_up_pressed or left_driving_gear or (disengage_on_brake and carState.brakePressed)):
+      self.always_on_lateral_allowed = False
+      self.aol_startup_pending = False
+
+    self.aol_driving_seen |= driving_gear
 
     self.prev_active = sm["selfdriveState"].active
     self.prev_cruise_enabled = carState.cruiseState.enabled

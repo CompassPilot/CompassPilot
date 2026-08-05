@@ -134,6 +134,32 @@
         "settings_tier": "simple"
       },
       {
+        "key": "AOLStartupBehavior",
+        "label": "AOL at Startup",
+        "description": "Choose whether Always On Lateral starts enabled when the vehicle first becomes ready to drive or waits for ACC/openpilot engagement.",
+        "data_type": "int",
+        "ui_type": "dropdown",
+        "parent_key": "AlwaysOnLateral",
+        "settings_tier": "simple",
+        "options": [
+          { "value": 0, "label": "Start Enabled" },
+          { "value": 1, "label": "Start Off" }
+        ]
+      },
+      {
+        "key": "AOLBrakeBehavior",
+        "label": "AOL Brake Behavior",
+        "description": "Choose whether pressing the brake disengages Always On Lateral or leaves its drive-scoped state active.",
+        "data_type": "int",
+        "ui_type": "dropdown",
+        "parent_key": "AlwaysOnLateral",
+        "settings_tier": "simple",
+        "options": [
+          { "value": 0, "label": "Disengage AOL" },
+          { "value": 1, "label": "Remain Active" }
+        ]
+      },
+       {
         "key": "PauseAOLOnBrake",
         "label": "Pause on Brake Press Below",
         "description": "Pause \"Always On Lateral\" below the set speed while the brake pedal is pressed.",
@@ -364,7 +390,7 @@
         "data_type": "float",
         "ui_type": "numeric",
         "min": 0.25,
-        "max": 1.00,
+        "max": 1.0,
         "step": 0.05,
         "precision": 2,
         "parent_key": "VASMEnabled",

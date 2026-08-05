@@ -210,6 +210,26 @@ def test_rivian_angle_control_is_harness_gated():
   assert _declared_default("RivianAngleControl") == "0"
 
 
+def test_aol_configuration_is_unified_and_preserves_default_startup():
+  sections = _params_by_section(_layout())
+  lateral = sections["Lateral (Steering)"]
+
+  assert lateral["AlwaysOnLateral"]["favorite_eligible"] is False
+  assert lateral["AOLStartupBehavior"]["parent_key"] == "AlwaysOnLateral"
+  assert lateral["AOLBrakeBehavior"]["parent_key"] == "AlwaysOnLateral"
+  assert _declared_default("AOLStartupBehavior") == "0"
+  assert _declared_default("AOLBrakeBehavior") == "1"
+
+
+def test_rivian_half_up_stalk_control_is_wheel_control_and_rivian_gated():
+  sections = _params_by_section(_layout())
+  setting = sections["Wheel Controls"]["RivianHalfUpStalkControl"]
+
+  assert setting["requires_capability"] == "IsRivian"
+  assert {option["value"] for option in setting["options"]} >= {0, 9}
+  assert _declared_default("RivianHalfUpStalkControl") == "0"
+
+
 def test_vasm_is_default_off_and_configured_only_in_galaxy():
   sections = _params_by_section(_layout())
   lateral = sections["Lateral (Steering)"]

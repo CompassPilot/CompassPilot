@@ -67,6 +67,8 @@ def make_sm():
 def make_toggles(**overrides):
   defaults = {
     "always_on_lateral": False,
+    "aol_brake_behavior": 1,
+    "aol_startup_enabled": True,
     "always_on_lateral_lkas": False,
     "always_on_lateral_main": False,
     "always_on_lateral_pause_speed": 0.0,
@@ -1012,3 +1014,187 @@ def test_favorite_traffic_mode_action_is_consumed_when_not_active(monkeypatch, t
 
   assert card.traffic_mode_enabled is False
   assert card._favorite_traffic_mode_counter == 1
+
+
+def make_aol_card(monkeypatch, tmp_path, brand="rivian"):
+  monkeypatch.setattr(spc, "Params", FakeParams)
+  monkeypatch.setattr(spc, "is_FrogsGoMoo", lambda: False)
+  monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
+  return spc.StarPilotCard(
+    SimpleNamespace(brand=brand),
+    SimpleNamespace(alternativeExperience=spc.ALTERNATIVE_EXPERIENCE.ALWAYS_ON_LATERAL),
+  )
+
+
+def test_aol_start_off_waits_for_engagement_on_every_new_drive(monkeypatch, tmp_path):
+  toggles = make_toggles(always_on_lateral=True, always_on_lateral_main=True,
+                         aol_startup_enabled=False, aol_brake_behavior=1)
+
+  for _ in range(2):
+    card = make_aol_card(monkeypatch, tmp_path, brand="toyota")
+    ret = card.update(make_car_state(available=True), SimpleNamespace(distancePressed=False), make_sm(), toggles)
+    assert ret.alwaysOnLateralAllowed is False
+    assert ret.alwaysOnLateralEnabled is False
+
+
+def test_aol_favorite_toggles_drive_latch_without_changing_master(monkeypatch, tmp_path):
+  card = make_aol_card(monkeypatch, tmp_path)
+  toggles = make_toggles(always_on_lateral=True, always_on_lateral_main=True,
+                         aol_startup_enabled=False, aol_brake_behavior=1)
+  starpilot_car_state = SimpleNamespace(distancePressed=False)
+  car_state = make_car_state(available=True)
+
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is False
+  assert card.params_memory.get_bool("AOLActive") is False
+
+  card.params_memory.put_int(FAVORITE_ACTION_AOL_COUNTER, 1)
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is True
+  assert card.params_memory.get_bool("AOLActive") is True
+  assert toggles.always_on_lateral is True
+
+  card.params_memory.put_int(FAVORITE_ACTION_AOL_COUNTER, 2)
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is False
+  assert card.params_memory.get_bool("AOLActive") is False
+
+
+def test_aol_start_enabled_arms_once_when_rivian_becomes_drive_ready(monkeypatch, tmp_path):
+  card = make_aol_card(monkeypatch, tmp_path)
+  toggles = make_toggles(always_on_lateral=True, always_on_lateral_main=True,
+                         aol_startup_enabled=True, aol_brake_behavior=1)
+  starpilot_car_state = SimpleNamespace(distancePressed=False)
+  car_state = make_car_state(available=True)
+  car_state.gearShifter = spc.GearShifter.park
+
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is False
+
+  car_state.gearShifter = spc.GearShifter.drive
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is True
+
+  car_state.buttonEvents = [SimpleNamespace(type=spc.ButtonType.altButton2, pressed=True)]
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is False
+
+  car_state.buttonEvents = []
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is False
+
+
+def test_rivian_half_up_mapping_toggles_aol_with_acc_off(monkeypatch, tmp_path):
+  card = make_aol_card(monkeypatch, tmp_path)
+  toggles = make_toggles(always_on_lateral=True, aol_startup_enabled=False,
+                         aol_brake_behavior=1, rivian_half_up_stalk_aol_toggle=True)
+  starpilot_car_state = SimpleNamespace(distancePressed=False)
+  car_state = make_car_state(button_events=[SimpleNamespace(type=spc.ButtonType.lkas, pressed=True)])
+
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is True
+  assert ret.alwaysOnLateralEnabled is True
+
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is False
+  assert ret.alwaysOnLateralEnabled is False
+
+
+def test_aol_cruise_engagement_enables_lateral_and_cancel_preserves_it(monkeypatch, tmp_path):
+  card = make_aol_card(monkeypatch, tmp_path, brand="toyota")
+  toggles = make_toggles(always_on_lateral=True, aol_startup_enabled=False, aol_brake_behavior=1)
+  starpilot_car_state = SimpleNamespace(distancePressed=False)
+  car_state = make_car_state(enabled=True)
+
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is True
+
+  car_state.cruiseState.enabled = False
+  car_state.buttonEvents = []
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is True
+  assert ret.alwaysOnLateralEnabled is True
+
+
+def test_aol_lateral_engagement_enables_lateral(monkeypatch, tmp_path):
+  card = make_aol_card(monkeypatch, tmp_path, brand="honda")
+  toggles = make_toggles(always_on_lateral=True, aol_startup_enabled=False, aol_brake_behavior=1)
+  sm = make_sm()
+  sm["selfdriveState"].active = True
+
+  ret = card.update(make_car_state(), SimpleNamespace(distancePressed=False), sm, toggles)
+
+  assert ret.alwaysOnLateralAllowed is True
+  assert ret.alwaysOnLateralEnabled is True
+
+
+def test_rivian_aol_full_up_and_non_drive_gears_clear_lateral(monkeypatch, tmp_path):
+  toggles = make_toggles(always_on_lateral=True, aol_startup_enabled=False, aol_brake_behavior=1)
+
+  for gear in (spc.GearShifter.park, spc.GearShifter.neutral, spc.GearShifter.reverse, spc.GearShifter.unknown):
+    card = make_aol_card(monkeypatch, tmp_path)
+    starpilot_car_state = SimpleNamespace(distancePressed=False)
+    car_state = make_car_state(enabled=True)
+    card.update(car_state, starpilot_car_state, make_sm(), toggles)
+
+    car_state.cruiseState.enabled = False
+    car_state.gearShifter = gear
+    ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+    assert ret.alwaysOnLateralAllowed is False
+    assert ret.alwaysOnLateralEnabled is False
+
+    car_state.gearShifter = spc.GearShifter.drive
+    ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+    assert ret.alwaysOnLateralAllowed is False
+
+  card = make_aol_card(monkeypatch, tmp_path)
+  starpilot_car_state = SimpleNamespace(distancePressed=False)
+  car_state = make_car_state(enabled=True)
+  card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  car_state.cruiseState.enabled = False
+  car_state.buttonEvents = [SimpleNamespace(type=spc.ButtonType.altButton2, pressed=True)]
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+  assert ret.alwaysOnLateralAllowed is False
+
+
+def test_aol_brake_behavior(monkeypatch, tmp_path):
+  for brake_behavior, expected_allowed in ((0, False), (1, True)):
+    card = make_aol_card(monkeypatch, tmp_path, brand="gm")
+    toggles = make_toggles(always_on_lateral=True, aol_startup_enabled=False,
+                           aol_brake_behavior=brake_behavior)
+    starpilot_car_state = SimpleNamespace(distancePressed=False)
+    car_state = make_car_state(enabled=True)
+    card.update(car_state, starpilot_car_state, make_sm(), toggles)
+
+    car_state.cruiseState.enabled = False
+    car_state.brakePressed = True
+    ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+    assert ret.alwaysOnLateralAllowed is expected_allowed
+    assert ret.alwaysOnLateralEnabled is expected_allowed
+
+
+def test_aol_default_brake_behavior_remains_active(monkeypatch, tmp_path):
+  card = make_aol_card(monkeypatch, tmp_path, brand="gm")
+  toggles = make_toggles(always_on_lateral=True, aol_startup_enabled=False)
+  starpilot_car_state = SimpleNamespace(distancePressed=False)
+  car_state = make_car_state(enabled=True)
+  card.update(car_state, starpilot_car_state, make_sm(), toggles)
+
+  car_state.cruiseState.enabled = False
+  car_state.brakePressed = True
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+
+  assert toggles.aol_brake_behavior == 1
+  assert ret.alwaysOnLateralAllowed is True
+  assert ret.alwaysOnLateralEnabled is True
+
+
+def test_rivian_half_up_non_aol_mapping_uses_dedicated_button_control(monkeypatch, tmp_path):
+  card = make_aol_card(monkeypatch, tmp_path)
+  toggles = make_toggles(always_on_lateral=True, aol_startup_enabled=False,
+                         bookmark_via_rivian_half_up=True)
+  car_state = make_car_state(button_events=[SimpleNamespace(type=spc.ButtonType.lkas, pressed=True)])
+
+  card.update(car_state, SimpleNamespace(distancePressed=False), make_sm(), toggles)
+
+  assert card.params_memory.get_int("WheelButtonBookmarkCounter") == 1
