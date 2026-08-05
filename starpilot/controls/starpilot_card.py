@@ -325,7 +325,7 @@ class StarPilotCard:
     )
     preserve_reverse_latch = self.hyundai_preserve_aol_across_reverse and carState.gearShifter == GearShifter.reverse
     left_driving_gear = self.aol_driving_seen and not driving_gear and not preserve_reverse_latch
-    disengage_on_brake = getattr(starpilot_toggles, "aol_brake_behavior", 0) == 0
+    disengage_on_brake = getattr(starpilot_toggles, "aol_brake_behavior", 1) == 0
     if aol_configured and (rivian_full_up_pressed or left_driving_gear or (disengage_on_brake and carState.brakePressed)):
       self.always_on_lateral_allowed = False
       self.aol_startup_pending = False

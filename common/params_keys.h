@@ -193,7 +193,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"AlwaysOnLateral", {PERSISTENT, BOOL, "1", "0", 0, SETTINGS_SIMPLE}},
     {"AlwaysOnLateralLKAS", {PERSISTENT, BOOL, "1", "0", 2}},
     {"AOLActive", {CLEAR_ON_MANAGER_START, BOOL, "0", "0"}},
-    {"AOLBrakeBehavior", {PERSISTENT, INT, "0", "0", 0, SETTINGS_SIMPLE}},
+    {"AOLBrakeBehavior", {PERSISTENT, INT, "1", "0", 0, SETTINGS_SIMPLE}},
     {"AOLStartupBehavior", {PERSISTENT, INT, "0", "0", 0, SETTINGS_SIMPLE}},
     {"ApiCache_DriveStats", {PERSISTENT, JSON, "{}", "{}"}},
     {"AutomaticallyDownloadModels", {PERSISTENT, BOOL, "1", "0", 1}},

@@ -808,7 +808,7 @@ class StarPilotVariables:
 
     toggle.always_on_lateral = self.get_value("AlwaysOnLateral")
     toggle.aol_brake_behavior = self.get_value(
-      "AOLBrakeBehavior", cast=int, condition=toggle.always_on_lateral, default=0, min=0, max=1,
+      "AOLBrakeBehavior", cast=int, condition=toggle.always_on_lateral, default=1, min=0, max=1,
     )
     toggle.aol_startup_behavior = self.get_value(
       "AOLStartupBehavior", cast=int, condition=toggle.always_on_lateral, default=0, min=0, max=1,

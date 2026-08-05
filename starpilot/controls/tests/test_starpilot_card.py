@@ -68,7 +68,7 @@ def make_sm():
 def make_toggles(**overrides):
   defaults = {
     "always_on_lateral": False,
-    "aol_brake_behavior": 0,
+    "aol_brake_behavior": 1,
     "aol_startup_enabled": True,
     "always_on_lateral_lkas": False,
     "always_on_lateral_main": False,
@@ -1478,6 +1478,22 @@ def test_aol_brake_behavior(monkeypatch, tmp_path):
     ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
     assert ret.alwaysOnLateralAllowed is expected_allowed
     assert ret.alwaysOnLateralEnabled is expected_allowed
+
+
+def test_aol_default_brake_behavior_remains_active(monkeypatch, tmp_path):
+  card = make_aol_card(monkeypatch, tmp_path, brand="gm")
+  toggles = make_toggles(always_on_lateral=True, aol_startup_enabled=False)
+  starpilot_car_state = SimpleNamespace(distancePressed=False)
+  car_state = make_car_state(enabled=True)
+  card.update(car_state, starpilot_car_state, make_sm(), toggles)
+
+  car_state.cruiseState.enabled = False
+  car_state.brakePressed = True
+  ret = card.update(car_state, starpilot_car_state, make_sm(), toggles)
+
+  assert toggles.aol_brake_behavior == 1
+  assert ret.alwaysOnLateralAllowed is True
+  assert ret.alwaysOnLateralEnabled is True
 
 
 def test_rivian_half_up_non_aol_mapping_uses_dedicated_button_control(monkeypatch, tmp_path):
