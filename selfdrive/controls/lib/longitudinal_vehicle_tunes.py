@@ -147,6 +147,12 @@ KIA_CARNIVAL_2025_STOP_SIGN_LOW_SPEED_HOLD = 0.75
 def get_planner_v_ego(CP, car_state):
   v_ego = max(car_state.vEgo, car_state.vEgoCluster)
 
+  is_rivian = getattr(CP, "carName", "") == "rivian" or getattr(CP, "brand", "") == "rivian"
+  if is_rivian:
+    # Rivian radar lead velocity is based on the physical vehicle speed. Keep the
+    # planner in that same reference frame when the cluster speed runs high.
+    return float(car_state.vEgo)
+
   if (getattr(CP, "carFingerprint", None) == "KIA_RAY_EV" and
       getattr(CP, "enableGasInterceptorDEPRECATED", False)):
     return float(car_state.vEgo)

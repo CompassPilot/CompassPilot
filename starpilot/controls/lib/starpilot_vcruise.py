@@ -648,6 +648,11 @@ class StarPilotVCruise:
     self.csc.handle_override(v_ego, csc_was_controlling, sm, accel_button=csc_accel_button)
     self.csc.log_data(v_ego, sm)
 
+    # Run after override calculation so the private Rivian set speed preserves
+    # the configured SLC override behavior. Calling this while SLC is disabled
+    # also resets its one-shot latch for a clean re-enable.
+    self.slc.update_set_speed_sync(sm)
+
     self.nav_turn_target = self._get_nav_turn_control_target(v_cruise, sm, starpilot_toggles)
 
     # Single tuning knob (signed feet -> meters). Defense clamp on top of UI bounds.

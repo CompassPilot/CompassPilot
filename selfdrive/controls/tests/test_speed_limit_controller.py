@@ -51,6 +51,7 @@ def make_toggles(**overrides):
     "map_speed_lookahead_higher": 0.0,
     "map_speed_lookahead_lower": 0.0,
     "slc_fallback_experimental_mode": False,
+    "slc_sync_set_speed": False,
     "slc_fallback_previous_speed_limit": False,
     "slc_fallback_set_speed": False,
     "slc_mapbox_filler": False,
@@ -689,3 +690,97 @@ def test_mapbox_parses_first_segment_without_worker_state_mutation(monkeypatch):
     assert helper.limit == 0
   finally:
     helper.shutdown()
+
+
+def test_set_speed_sync_tracks_valid_active_limit_and_reapplies_on_engage(controller_factory):
+  controller = controller_factory(slc_sync_set_speed=True, speed_limit_offset4=mph(2))
+  memory = controller.starpilot_planner.params_memory
+
+  sm = step(controller, dashboard=mph(45), cruise=mph(75), ego=mph(40))
+  controller.update_set_speed_sync(sm)
+  assert memory.get_float("SLCForceCruiseSpeed") == pytest.approx(mph(47))
+
+  memory.remove("SLCForceCruiseSpeed")
+  sm = step(controller, dashboard=mph(45), cruise=mph(75), ego=mph(40))
+  controller.update_set_speed_sync(sm)
+  assert memory.get_float("SLCForceCruiseSpeed") == 0
+
+  sm = step(controller, dashboard=mph(45), cruise=mph(75), ego=mph(40), long_active=False)
+  controller.update_set_speed_sync(sm)
+  sm = step(controller, dashboard=mph(45), cruise=mph(75), ego=mph(40))
+  controller.update_set_speed_sync(sm)
+  assert memory.get_float("SLCForceCruiseSpeed") == pytest.approx(mph(47))
+
+
+def test_set_speed_sync_waits_for_higher_limit_confirmation(controller_factory):
+  controller = controller_factory(slc_sync_set_speed=True, speed_limit_confirmation_higher=True,
+                                  persisted=mph(45))
+  memory = controller.starpilot_planner.params_memory
+
+  sm = step(controller, dashboard=mph(45), cruise=mph(45), ego=mph(45))
+  controller.update_set_speed_sync(sm)
+  assert memory.get_float("SLCForceCruiseSpeed") == pytest.approx(mph(45))
+  memory.remove("SLCForceCruiseSpeed")
+
+  sm = step(controller, dashboard=mph(55), cruise=mph(45), ego=mph(45))
+  controller.update_set_speed_sync(sm)
+  assert controller.unconfirmed_speed_limit == pytest.approx(mph(55))
+  assert memory.get_float("SLCForceCruiseSpeed") == 0
+
+  sm = step(controller, dashboard=mph(55), cruise=mph(45), ego=mph(45), accel=True)
+  controller.update_set_speed_sync(sm)
+  assert controller.target == pytest.approx(mph(55))
+  assert controller.source == SOURCE_DASHBOARD
+  assert memory.get_float("SLCForceCruiseSpeed") == pytest.approx(mph(55))
+
+
+def test_set_speed_sync_reapplies_after_parent_controller_is_disabled(controller_factory):
+  controller = controller_factory(slc_sync_set_speed=True)
+  memory = controller.starpilot_planner.params_memory
+
+  sm = step(controller, dashboard=mph(45), cruise=mph(75), ego=mph(40))
+  controller.update_set_speed_sync(sm)
+  assert memory.get_float("SLCForceCruiseSpeed") == pytest.approx(mph(45))
+
+  memory.remove("SLCForceCruiseSpeed")
+  controller.starpilot_toggles.slc_sync_set_speed = False
+  controller.update_set_speed_sync(sm)
+
+  controller.starpilot_toggles.slc_sync_set_speed = True
+  controller.update_set_speed_sync(sm)
+  assert memory.get_float("SLCForceCruiseSpeed") == pytest.approx(mph(45))
+
+
+def test_set_speed_sync_resets_when_slc_is_inactive(controller_factory):
+  controller = controller_factory(slc_sync_set_speed=True)
+  memory = controller.starpilot_planner.params_memory
+
+  sm = step(controller, dashboard=mph(45), cruise=mph(75), ego=mph(40))
+  controller.update_set_speed_sync(sm)
+  memory.remove("SLCForceCruiseSpeed")
+
+  sm = step(controller, dashboard=mph(45), cruise=mph(75), ego=mph(40), active=False)
+  controller.update_set_speed_sync(sm)
+  assert memory.get_float("SLCForceCruiseSpeed") == 0
+
+  sm = step(controller, dashboard=mph(45), cruise=mph(75), ego=mph(40))
+  controller.update_set_speed_sync(sm)
+  assert memory.get_float("SLCForceCruiseSpeed") == pytest.approx(mph(45))
+
+
+@pytest.mark.parametrize("override", ["pedal", "set_speed"])
+def test_set_speed_sync_preserves_slc_overrides(controller_factory, override):
+  controller = controller_factory(slc_sync_set_speed=True, speed_limit_offset4=mph(2))
+  memory = controller.starpilot_planner.params_memory
+
+  step(controller, dashboard=mph(45), cruise=mph(47), ego=mph(45))
+  if override == "pedal":
+    sm = step(controller, dashboard=mph(45), cruise=mph(47), ego=mph(55), gas=True)
+    expected_speed = mph(55)
+  else:
+    sm = step(controller, dashboard=mph(45), cruise=mph(75), ego=mph(45))
+    expected_speed = mph(75)
+  controller.update_set_speed_sync(sm)
+
+  assert controller.overridden_speed == pytest.approx(expected_speed)
+  assert memory.get_float("SLCForceCruiseSpeed") == pytest.approx(expected_speed)

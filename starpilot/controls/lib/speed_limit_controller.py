@@ -76,6 +76,7 @@ class SpeedLimitController:
     self._using_experimental_fallback = False
     self._using_previous_limit_fallback = False
     self._mode = "off"
+    self._last_synced_set_speed = 0.0
 
   def shutdown(self):
     self.mapbox.shutdown()
@@ -344,6 +345,22 @@ class SpeedLimitController:
         memory.put_float("SLCForceCruiseSpeed", target_with_offset)
     elif sm["starpilotCarState"].decelPressed or (self.confirmation_time >= 30 and long_active):
       self._reject_limit(self.pending_limit)
+
+  def update_set_speed_sync(self, sm):
+    sync_enabled = bool(getattr(self.starpilot_toggles, "slc_sync_set_speed", False))
+    long_active = bool(sm["carControl"].longActive)
+    valid_limit = self.source != SOURCE_NONE and self.target > 0
+
+    if not sync_enabled or not long_active or not valid_limit:
+      self._last_synced_set_speed = 0.0
+      return
+
+    requested_set_speed = max(self.target + self.offset, self.overridden_speed)
+    if abs(requested_set_speed - self._last_synced_set_speed) < 0.01:
+      return
+
+    self.starpilot_planner.params_memory.put_float("SLCForceCruiseSpeed", requested_set_speed)
+    self._last_synced_set_speed = requested_set_speed
 
   def _process_adopt_request(self, source, limit):
     memory = self.starpilot_planner.params_memory
