@@ -843,6 +843,7 @@ async function activateFavoriteAction(key) {
 
     if (res.ok) {
       showParamSnackbar(data.message || "Favorite action sent.")
+      window.setTimeout(refreshFavoriteValues, 100)
     } else {
       showParamSnackbar(data.error || "Failed to send favorite action", "error")
     }
@@ -1440,6 +1441,7 @@ function renderFavoriteSlotsPanel() {
             const selectedKey = favorite.selectedKey
             const selectedValue = favorite.selectedValue
             const isAction = isFavoriteActionOption(selectedOption)
+            const isToggleAction = isAction && !!selectedOption.toggleAction
             const quickCopy = html`
               <div class="ds-favorite-quick-copy">
                 <span class="ds-favorite-quick-slot">Favorite #${favorite.index + 1}</span>
@@ -1456,7 +1458,7 @@ function renderFavoriteSlotsPanel() {
                   class="ds-favorite-quick-card ds-favorite-action-card"
                   @click="${() => activateFavoriteAction(selectedKey)}">
                   ${quickCopy}
-                  <span class="ds-favorite-action-chip">Press</span>
+                  <span class="ds-favorite-action-chip">${isToggleAction ? (selectedValue ? "On" : "Off") : "Press"}</span>
                 </button>
               `
             }
