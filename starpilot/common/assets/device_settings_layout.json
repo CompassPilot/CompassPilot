@@ -147,8 +147,8 @@
         "parent_key": "AlwaysOnLateral",
         "settings_tier": "simple",
         "options": [
-          {"value": 0, "label": "Start Enabled"},
-          {"value": 1, "label": "Start Off"}
+          { "value": 0, "label": "Start Enabled" },
+          { "value": 1, "label": "Start Off" }
         ]
       },
       {
@@ -160,8 +160,8 @@
         "parent_key": "AlwaysOnLateral",
         "settings_tier": "simple",
         "options": [
-          {"value": 0, "label": "Disengage AOL"},
-          {"value": 1, "label": "Remain Active"}
+          { "value": 0, "label": "Disengage AOL" },
+          { "value": 1, "label": "Remain Active" }
         ]
       },
       {
