@@ -14,7 +14,32 @@ from openpilot.starpilot.common.starpilot_utilities import delete_file
 from openpilot.starpilot.common.starpilot_variables import EXCLUDED_KEYS, STARPILOT_BACKUPS, TOGGLE_BACKUPS
 
 
+class _BackupCancelled(Exception):
+  pass
+
+
+class _OnroadAwareWriter:
+  def __init__(self, writer, params):
+    self.writer = writer
+    self.params = params
+
+  def check_onroad(self):
+    if self.params.get_bool("IsOnroad"):
+      raise _BackupCancelled
+
+  def write(self, data):
+    self.check_onroad()
+
+    return self.writer.write(data)
+
+  def __getattr__(self, name):
+    return getattr(self.writer, name)
+
+
 def backup_starpilot(build_metadata, params):
+  if params.get_bool("IsOnroad"):
+    return False
+
   maximum_backups = 3
   cleanup_backups(STARPILOT_BACKUPS, maximum_backups)
 
@@ -29,7 +54,10 @@ def backup_starpilot(build_metadata, params):
   minimum_backup_size = params.get_int("MinimumBackupSize", return_default=True, default=0)
   if free > minimum_backup_size * maximum_backups:
     destination = STARPILOT_BACKUPS / f"{build_metadata.openpilot.git_commit}_{build_metadata.channel}_auto"
-    create_backup(Path(BASEDIR), destination, "Successfully backed up StarPilot!", "Failed to backup StarPilot...", params, minimum_backup_size, compressed=True)
+    return create_backup(
+      Path(BASEDIR), destination, "Successfully backed up StarPilot!", "Failed to backup StarPilot...", params, minimum_backup_size, compressed=True
+    )
+  return True
 
 
 def backup_toggles(params, boot_run=False):
@@ -78,21 +106,29 @@ def create_backup(backup, destination, success_message, fail_message, params, mi
 
   if final_destination.exists():
     print("Backup already exists. Aborting...")
-    return
+    return True
 
   if compressed:
     compressed_temp = destination.parent / f"{destination.name}_in_progress.tar.zst"
 
-    with open(compressed_temp, "wb") as f_out:
-      cctx = zstd.ZstdCompressor()
-      with cctx.stream_writer(f_out) as compressor:
-        with tarfile.open(fileobj=compressor, mode="w") as tar:
-          try:
+    try:
+      with open(compressed_temp, "wb") as f_out:
+        cctx = zstd.ZstdCompressor()
+        with cctx.stream_writer(f_out) as compressor:
+          writer = _OnroadAwareWriter(compressor, params)
+          with tarfile.open(fileobj=writer, mode="w") as tar:
             tar.add(backup, arcname=destination.name)
-          except OSError:
-            pass
-
-    compressed_temp.rename(final_destination)
+          writer.check_onroad()
+        writer.check_onroad()
+      compressed_temp.rename(final_destination)
+    except _BackupCancelled:
+      delete_file(compressed_temp, report=False)
+      print("StarPilot backup cancelled while onroad. It will restart offroad.")
+      return False
+    except Exception:
+      delete_file(compressed_temp, report=False)
+      print(fail_message)
+      raise
 
     compressed_backup_size = final_destination.stat().st_size
     if minimum_backup_size == 0 or compressed_backup_size < minimum_backup_size:
@@ -105,3 +141,4 @@ def create_backup(backup, destination, success_message, fail_message, params, mi
     in_progress_destination.rename(destination)
 
   print(success_message)
+  return True
