@@ -507,6 +507,53 @@ def test_turn_desire_held_while_stopping_for_red_light():
   assert helper.desire == log.Desire.none
 
 
+def test_aol_only_turn_desire_ignores_raw_red_light():
+  helper = DesireHelper()
+
+  helper.update(
+    make_car_state(vEgo=5.0, rightBlinker=True, cruiseState=SimpleNamespace(enabled=False)),
+    True,
+    0.0,
+    make_plan(redLight=True),
+    make_toggles(use_turn_desires=True, minimum_lane_change_speed=10.0),
+    controls_enabled=False,
+  )
+
+  assert not helper.turn_stop_hold
+  assert helper.desire == log.Desire.turnRight
+
+
+def test_raw_red_light_hold_clears_without_cycling_blinker():
+  helper = DesireHelper()
+  toggles = make_toggles(use_turn_desires=True, minimum_lane_change_speed=10.0)
+  car_state = make_car_state(vEgo=5.0, rightBlinker=True)
+
+  helper.update(car_state, True, 0.0, make_plan(redLight=True), toggles, controls_enabled=True)
+  assert helper.turn_stop_hold
+  assert helper.desire == log.Desire.none
+
+  helper.update(car_state, True, 0.0, make_plan(redLight=False), toggles, controls_enabled=True)
+  assert not helper.turn_stop_hold
+  assert helper.desire == log.Desire.turnRight
+
+
+def test_committed_stop_hold_remains_latched_until_standstill():
+  helper = DesireHelper()
+  toggles = make_toggles(use_turn_desires=True, minimum_lane_change_speed=10.0)
+  moving = make_car_state(vEgo=5.0, rightBlinker=True)
+
+  helper.update(moving, True, 0.0, make_plan(forcingStop=True), toggles, controls_enabled=True)
+  assert helper.turn_stop_hold
+
+  helper.update(moving, True, 0.0, make_plan(forcingStop=False), toggles, controls_enabled=True)
+  assert helper.turn_stop_hold
+  assert helper.desire == log.Desire.none
+
+  helper.update(make_car_state(vEgo=0.0, rightBlinker=True, standstill=True), True, 0.0,
+                make_plan(), toggles, controls_enabled=True)
+  assert not helper.turn_stop_hold
+
+
 def test_turn_desire_released_after_stop_completes():
   helper = DesireHelper()
   toggles = make_toggles(use_turn_desires=True, minimum_lane_change_speed=10.0)

@@ -61,6 +61,7 @@ class DesireHelper:
     self.desire = log.Desire.none
 
     self.turn_stop_hold = False
+    self.turn_committed_stop_hold = False
 
     self.lane_change_completed = False
 
@@ -245,16 +246,22 @@ class DesireHelper:
     one_blinker = carstate.leftBlinker != carstate.rightBlinker
     below_lane_change_speed = v_ego < starpilot_toggles.minimum_lane_change_speed
 
-    stop_imminent = (bool(getattr(starpilotPlan, "redLight", False))
-                     or bool(getattr(starpilotPlan, "forcingStop", False))
-                     or bool(getattr(starpilotPlan, "stopSignConfirmed", False)))
-    if carstate.standstill or not one_blinker:
-      self.turn_stop_hold = False
-    elif stop_imminent:
-      self.turn_stop_hold = True
-
     cruise_state = getattr(carstate, "cruiseState", None)
     controls_enabled = bool(getattr(cruise_state, "enabled", False)) if controls_enabled is None else bool(controls_enabled)
+    committed_stop = (bool(getattr(starpilotPlan, "forcingStop", False))
+                      or bool(getattr(starpilotPlan, "stopSignConfirmed", False)))
+    if carstate.standstill or not one_blinker:
+      self.turn_committed_stop_hold = False
+      self.turn_stop_hold = False
+    else:
+      if committed_stop:
+        self.turn_committed_stop_hold = True
+      # A raw red-light detection is a live veto only while controls are fully
+      # enabled. In AOL-only, the driver owns stopping and an explicit low-speed
+      # turn signal should still reach the driving model.
+      red_light_hold = controls_enabled and bool(getattr(starpilotPlan, "redLight", False))
+      self.turn_stop_hold = self.turn_committed_stop_hold or red_light_hold
+
     nudgeless_enabled = self._nudgeless_enabled(starpilot_toggles, controls_enabled)
     lane_changes_allowed = starpilot_toggles.lane_changes
     lane_changes_allowed &= not getattr(starpilot_toggles, "lane_changes_require_cruise", False) or bool(getattr(cruise_state, "enabled", False))
