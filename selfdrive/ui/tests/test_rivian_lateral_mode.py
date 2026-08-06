@@ -39,6 +39,9 @@ class FakeTexture:
     self.height = height
 
 
+LateralControlMode = car.CarControl.Actuators.LateralControlMode
+
+
 class FakeSubMaster(dict):
   def __init__(self, *, lateral_mode, steering_pressed=False, lat_active=True):
     super().__init__({
