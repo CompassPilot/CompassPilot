@@ -105,8 +105,33 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
     // Cruise state
     if (msg->addr == 0x100U) {
       const int feature_status = msg->data[2] >> 5U;
-      pcm_cruise_check(feature_status == 1);
-      acc_main_on = (feature_status == 0) || (feature_status == 1);
+      const bool acc_enabled = feature_status == 1;
+      pcm_cruise_check(acc_enabled);
+
+      if (rivian_aol_lateral) {
+        rivian_aol_available = (feature_status == 0) || acc_enabled;
+        if (!rivian_aol_available) {
+          rivian_aol_start_pending = false;
+          rivian_aol_lkas_pending = false;
+          lkas_on = false;
+        } else if (acc_enabled && !rivian_aol_acc_enabled) {
+          rivian_aol_start_pending = false;
+          rivian_aol_lkas_pending = false;
+          lkas_on = true;
+        } else if (rivian_aol_start_pending && rivian_aol_in_drive && rivian_aol_available) {
+          rivian_aol_start_pending = false;
+          lkas_on = true;
+        } else if (rivian_aol_lkas_pending) {
+          // Resolve the deferred half-up request on the next 100 Hz ACM_Status message.
+          lkas_on = !lkas_on;
+          rivian_aol_lkas_pending = false;
+        }
+        rivian_aol_acc_enabled = acc_enabled;
+        // AOL lateral permission comes only from its latch, not ACC availability.
+        acc_main_on = false;
+      } else {
+        acc_main_on = (feature_status == 0) || (feature_status == 1);
+      }
     }
   }
 }
