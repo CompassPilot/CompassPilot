@@ -266,6 +266,244 @@ class TestRivianAngleSafety(TestRivianAngleSafetyBase):
     self.safety.init_tests()
 
 
+class TestRivianAOLSafety(unittest.TestCase):
+  TX_MSGS = []
+
+  def setUp(self):
+    self.packer = CANPackerSafety("rivian_primary_actuator")
+    self.safety = libsafety_py.libsafety
+    self.cnt_adas = 0
+    self.cnt_prop = 0
+
+  def _set_mode(self, brake_remains_active=False, stalk_toggle=True, start_enabled=False):
+    flags = RivianSafetyFlags.AOL_LATERAL
+    if brake_remains_active:
+      flags |= RivianSafetyFlags.AOL_BRAKE_REMAINS_ACTIVE
+    if stalk_toggle:
+      flags |= RivianSafetyFlags.AOL_STALK_TOGGLE
+    if start_enabled:
+      flags |= RivianSafetyFlags.AOL_START_ENABLED
+    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, flags)
+    self.safety.init_tests()
+    self.safety.set_alternative_experience(ALTERNATIVE_EXPERIENCE.ALWAYS_ON_LATERAL)
+    self.cnt_adas = 0
+    self.cnt_prop = 0
+
+  def _rx(self, msg):
+    return self.safety.safety_rx_hook(msg)
+
+  def _tx(self, msg):
+    return self.safety.safety_tx_hook(msg)
+
+  def _stalk_msg(self, request, *, counter=None, bus=0):
+    if counter is None:
+      counter = self.cnt_adas % 15
+      self.cnt_adas += 1
+    values = {"VDM_UserAdasRequest": request, "VDM_AdasStatus_Counter": counter}
+    return self.packer.make_can_msg_safety("VDM_AdasSts", bus, values, fix_checksum=checksum)
+
+  def _gear_msg(self, gear):
+    values = {
+      "VDM_Prndl_Status": gear,
+      "VDM_PropStatus_Counter": self.cnt_prop % 15,
+      "VDM_VehicleSpeedQ": 1,
+    }
+    self.cnt_prop += 1
+    return self.packer.make_can_msg_safety("VDM_PropStatus", 0, values, fix_checksum=checksum)
+
+  def _acc_msg(self, enabled):
+    return self._feature_status_msg(1 if enabled else 0)
+
+  def _feature_status_msg(self, feature_status):
+    values = {"ACM_FeatureStatus": feature_status, "ACM_Unkown1": 1}
+    return self.packer.make_can_msg_safety("ACM_Status", 2, values)
+
+  def _brake_msg(self, pressed):
+    return self.packer.make_can_msg_safety("iBESP2", 0, {"iBESP2_BrakePedalApplied": pressed})
+
+  def _torque_cmd_msg(self, torque=0, steer_req=True):
+    values = {"ACM_lkaStrToqReq": torque, "ACM_lkaActToi": steer_req}
+    return self.packer.make_can_msg_safety("ACM_lkaHbaCmd", 0, values)
+
+  def _angle_cmd_msg(self, angle=0, active=True):
+    values = {"ACM_SteeringAngleRequest": angle, "ACM_EacEnabled": active}
+    return self.packer.make_can_msg_safety("ACM_SteeringControl", 0, values)
+
+  def test_initial_state_and_half_up_toggle(self):
+    self._set_mode()
+    self.assertFalse(self.safety.get_lkas_on())
+    self.assertFalse(self.safety.get_aol_allowed())
+
+    self.assertTrue(self._rx(self._stalk_msg(1)))
+    self.assertFalse(self.safety.get_lkas_on())
+    self.assertTrue(self._rx(self._acc_msg(False)))
+    self.assertTrue(self.safety.get_lkas_on())
+    self.assertTrue(self.safety.get_aol_allowed())
+    self.assertTrue(self._rx(self._stalk_msg(0)))
+
+    self.assertTrue(self._rx(self._stalk_msg(1)))
+    self.assertTrue(self._rx(self._acc_msg(False)))
+    self.assertTrue(self._rx(self._stalk_msg(0)))
+    self.assertFalse(self.safety.get_lkas_on())
+
+  def test_full_up_cancels_pending_half_up_and_clears_lateral(self):
+    self._set_mode()
+    self.assertTrue(self._rx(self._stalk_msg(1)))
+    self.assertTrue(self._rx(self._stalk_msg(2)))
+    self.assertFalse(self.safety.get_lkas_on())
+    self.assertTrue(self._rx(self._stalk_msg(0)))
+
+    self.assertTrue(self._rx(self._acc_msg(True)))
+    self.assertTrue(self.safety.get_lkas_on())
+    self.assertTrue(self._rx(self._stalk_msg(2)))
+    self.assertFalse(self.safety.get_lkas_on())
+
+  def test_acc_enables_lateral_and_cancel_preserves_it(self):
+    self._set_mode()
+    self.assertTrue(self._rx(self._acc_msg(True)))
+    self.assertTrue(self.safety.get_lkas_on())
+    self.assertTrue(self._rx(self._acc_msg(False)))
+    self.assertTrue(self.safety.get_lkas_on())
+
+    # UP_1 is the native ACC-cancel gesture and must not toggle AOL.
+    self.assertTrue(self._rx(self._acc_msg(True)))
+    self.assertTrue(self._rx(self._stalk_msg(1)))
+    self.assertTrue(self._rx(self._acc_msg(False)))
+    self.assertTrue(self._rx(self._stalk_msg(0)))
+    self.assertTrue(self.safety.get_lkas_on())
+
+  def test_unavailable_feature_status_clears_lateral(self):
+    for feature_status in range(2, 8):
+      self._set_mode()
+      self.assertTrue(self._rx(self._acc_msg(True)))
+      self.assertTrue(self.safety.get_lkas_on())
+      self.assertTrue(self.safety.get_aol_allowed())
+
+      self.assertTrue(self._rx(self._feature_status_msg(feature_status)))
+      self.assertFalse(self.safety.get_lkas_on())
+      self.assertFalse(self.safety.get_aol_allowed())
+
+      # Returning to standby only restores availability, not the AOL latch.
+      self.assertTrue(self._rx(self._acc_msg(False)))
+      self.assertFalse(self.safety.get_lkas_on())
+      self.assertFalse(self.safety.get_aol_allowed())
+
+  def test_non_drive_gears_clear_and_drive_does_not_reenable(self):
+    for gear in (0, 1, 2, 3):
+      self._set_mode(brake_remains_active=True)
+      self.assertTrue(self._rx(self._acc_msg(True)))
+      self.assertTrue(self.safety.get_lkas_on())
+      self.assertTrue(self._rx(self._gear_msg(gear)))
+      self.assertFalse(self.safety.get_lkas_on())
+      self.assertTrue(self._rx(self._gear_msg(4)))
+      self.assertFalse(self.safety.get_lkas_on())
+
+  def test_brake_behavior(self):
+    for brake_remains_active in (False, True):
+      self._set_mode(brake_remains_active)
+      self.assertTrue(self._rx(self._acc_msg(True)))
+      self.assertTrue(self._rx(self._brake_msg(True)))
+      self.assertEqual(self.safety.get_lkas_on(), brake_remains_active)
+      self.assertFalse(self.safety.get_controls_allowed())
+
+  def test_stalk_checksum_counter_and_bus_validation(self):
+    self._set_mode()
+    valid = self._stalk_msg(1)
+    valid[0].data[0] ^= 0xFF
+    self.assertFalse(self._rx(valid))
+    self.assertFalse(self.safety.get_lkas_on())
+
+    self._set_mode()
+    for i in range(common.MAX_WRONG_COUNTERS):
+      should_accept = i + 1 < common.MAX_WRONG_COUNTERS
+      self.assertEqual(self._rx(self._stalk_msg(0, counter=0)), should_accept)
+    self.assertFalse(self.safety.get_lkas_on())
+
+    self._set_mode()
+    self.assertTrue(self._rx(self._stalk_msg(1, bus=1)))
+    self.assertFalse(self.safety.get_lkas_on())
+
+  def test_half_up_requires_explicit_stalk_mapping(self):
+    self._set_mode(stalk_toggle=False)
+    self.assertTrue(self._rx(self._stalk_msg(1)))
+    self.assertTrue(self._rx(self._acc_msg(False)))
+    self.assertFalse(self.safety.get_lkas_on())
+
+    self.assertTrue(self._rx(self._acc_msg(True)))
+    self.assertTrue(self._rx(self._stalk_msg(2)))
+    self.assertFalse(self.safety.get_lkas_on())
+
+  def test_start_enabled_arms_once_when_drive_ready(self):
+    self._set_mode(start_enabled=True)
+    self.assertFalse(self.safety.get_lkas_on())
+
+    self.assertTrue(self._rx(self._acc_msg(False)))
+    self.assertFalse(self.safety.get_lkas_on())
+    self.assertTrue(self._rx(self._gear_msg(4)))
+    self.assertTrue(self.safety.get_lkas_on())
+
+    self.assertTrue(self._rx(self._stalk_msg(2)))
+    self.assertFalse(self.safety.get_lkas_on())
+    self.assertTrue(self._rx(self._acc_msg(False)))
+    self.assertTrue(self._rx(self._gear_msg(4)))
+    self.assertFalse(self.safety.get_lkas_on())
+
+  def test_start_off_ignores_availability_until_engagement(self):
+    self._set_mode(start_enabled=False)
+    self.assertTrue(self._rx(self._acc_msg(False)))
+    self.assertTrue(self._rx(self._gear_msg(4)))
+    self.assertFalse(self.safety.get_lkas_on())
+    self.assertTrue(self._rx(self._acc_msg(True)))
+    self.assertTrue(self.safety.get_lkas_on())
+
+  def test_live_aol_torque_request_rearms_with_physical_gates(self):
+    self._set_mode(start_enabled=False)
+    self.assertTrue(self._rx(self._acc_msg(False)))
+    self.assertTrue(self._rx(self._gear_msg(4)))
+    self.assertFalse(self.safety.get_lkas_on())
+
+    self.assertTrue(self._tx(self._torque_cmd_msg()))
+    self.assertTrue(self.safety.get_lkas_on())
+    self.assertTrue(self.safety.get_aol_allowed())
+
+    self.assertTrue(self._rx(self._stalk_msg(2)))
+    self.assertFalse(self.safety.get_lkas_on())
+    # A zero-torque request is harmless and may pass the common torque check,
+    # but full-up must still prevent it from re-arming AOL.
+    self.assertTrue(self._tx(self._torque_cmd_msg()))
+    self.assertFalse(self.safety.get_lkas_on())
+
+    self.assertTrue(self._rx(self._stalk_msg(0)))
+    self.assertTrue(self._tx(self._torque_cmd_msg()))
+    self.assertTrue(self.safety.get_lkas_on())
+
+  def test_live_aol_angle_request_rearms_angle_harness(self):
+    flags = RivianSafetyFlags.AOL_LATERAL | RivianSafetyFlags.ANGLE_CONTROL
+    self.assertEqual(self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, flags), 0)
+    self.safety.init_tests()
+    self.safety.set_alternative_experience(ALTERNATIVE_EXPERIENCE.ALWAYS_ON_LATERAL)
+    self.assertTrue(self._rx(self._acc_msg(False)))
+    self.assertTrue(self._rx(self._gear_msg(4)))
+
+    self.assertTrue(self._tx(self._angle_cmd_msg()))
+    self.assertTrue(self.safety.get_lkas_on())
+    self.assertTrue(self.safety.get_aol_allowed())
+
+  def test_aol_composes_with_all_rivian_harness_flags(self):
+    for harness_flags in (
+      RivianSafetyFlags(0),
+      RivianSafetyFlags.ANGLE_CONTROL,
+      RivianSafetyFlags.LONG_CONTROL,
+      RivianSafetyFlags.ANGLE_CONTROL | RivianSafetyFlags.LONG_CONTROL,
+    ):
+      flags = RivianSafetyFlags.AOL_LATERAL | harness_flags
+      self.assertEqual(self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, flags), 0)
+      self.safety.init_tests()
+      self.safety.set_alternative_experience(ALTERNATIVE_EXPERIENCE.ALWAYS_ON_LATERAL)
+      self.assertTrue(self._rx(self._acc_msg(True)))
+      self.assertTrue(self.safety.get_lkas_on())
+
+
 class TestRivianAngleLongitudinalSafety(TestRivianAngleSafetyBase):
   LONGITUDINAL = True
   TX_MSGS = [[0x100, 0], [0x110, 0], [0x120, 0], [0x321, 2], [0x160, 0]]
