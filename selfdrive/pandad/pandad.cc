@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bitset>
 #include <cassert>
 #include <cerrno>
@@ -42,6 +43,14 @@
 #define SATURATE_IL 1000
 
 ExitHandler do_exit;
+
+struct HwmonState {
+  std::atomic<uint32_t> voltage{0};
+  std::atomic<uint32_t> current{0};
+  std::atomic<bool> initialized{false};
+};
+
+HwmonState hwmon_state;
 
 static uint64_t last_door_lock_command_time = 0;
 
@@ -159,6 +168,26 @@ void can_recv(std::vector<Panda *> &pandas, PubMaster *pm) {
       canData[i].setSrc(raw_can_data[i].src);
     }
     pm->send("can", msg);
+  }
+}
+
+void hwmon_thread() {
+  util::set_thread_name("pandad_hwmon");
+
+  while (!do_exit) {
+    double read_time = millis_since_boot();
+    uint32_t voltage = Hardware::get_voltage();
+    uint32_t current = Hardware::get_current();
+    read_time = millis_since_boot() - read_time;
+    if (read_time > 50) {
+      LOGW("reading hwmon took %lfms", read_time);
+    }
+
+    hwmon_state.voltage.store(voltage);
+    hwmon_state.current.store(current);
+    hwmon_state.initialized.store(true);
+
+    util::sleep_for(500);
   }
 }
 
@@ -328,6 +357,10 @@ std::optional<bool> send_panda_states(PubMaster *pm, const std::vector<Panda *> 
 }
 
 void send_peripheral_state(Panda *panda, PubMaster *pm) {
+  if (!hwmon_state.initialized.load()) {
+    return;
+  }
+
   // build msg
   MessageBuilder msg;
   auto evt = msg.initEvent();
@@ -336,13 +369,8 @@ void send_peripheral_state(Panda *panda, PubMaster *pm) {
   auto ps = evt.initPeripheralState();
   ps.setPandaType(panda->hw_type);
 
-  double read_time = millis_since_boot();
-  ps.setVoltage(Hardware::get_voltage());
-  ps.setCurrent(Hardware::get_current());
-  read_time = millis_since_boot() - read_time;
-  if (read_time > 50) {
-    LOGW("reading hwmon took %lfms", read_time);
-  }
+  ps.setVoltage(hwmon_state.voltage.load());
+  ps.setCurrent(hwmon_state.current.load());
 
   // fall back to panda's voltage and current measurement
   if (ps.getVoltage() == 0 && ps.getCurrent() == 0) {
@@ -472,8 +500,9 @@ void pandad_run(std::vector<Panda *> &pandas) {
   const bool spoofing_started = getenv("STARTED") != nullptr;
   const bool fake_send = getenv("FAKESEND") != nullptr;
 
-  // Start the CAN send thread
+  // Start helper threads for event-driven sendcan and slow non-Panda reads.
   std::thread send_thread(can_send_thread, pandas, fake_send);
+  std::thread hardware_thread(hwmon_thread);
 
   Params params;
   RateKeeper rk("pandad", 100);
@@ -538,6 +567,7 @@ void pandad_run(std::vector<Panda *> &pandas) {
   }
 
   send_thread.join();
+  hardware_thread.join();
 }
 
 void pandad_main_thread(std::vector<std::string> serials) {
