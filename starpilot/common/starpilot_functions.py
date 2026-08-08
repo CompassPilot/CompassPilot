@@ -173,7 +173,9 @@ def update_boot_logo(starpilot=False, stock=False, selected_logo=None):
     if selected_logo:
       selected = selected_logo.decode("utf-8", "ignore") if isinstance(selected_logo, (bytes, bytearray)) else str(selected_logo)
       selected = selected.strip()
-      if selected.lower() not in {"", "stock", "default"}:
+      # "starpilot" is the legacy identifier for the bundled default. Prefer the
+      # current bundled asset over a stale persistent cache after an update.
+      if selected.lower() not in {"", "stock", "default", "starpilot"}:
         matched_logo = find_matching_theme_asset_file(THEME_SAVE_PATH / "bootlogos", selected)
         if matched_logo is not None:
           target_logo = matched_logo

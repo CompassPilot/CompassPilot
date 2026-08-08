@@ -57,8 +57,8 @@ permissions:
   contents: write
 
 env:
-  GIT_EMAIL: "168790843+firestar5683@users.noreply.github.com"
-  GIT_NAME: "StarPilot Build Bot"
+  GIT_EMAIL: "100325903+TonyJOM@users.noreply.github.com"
+  GIT_NAME: "CompassPilot Build Bot"
   TARGET_REF: ${{ inputs.target_ref }}
 
 jobs:
