@@ -42,6 +42,29 @@ class FakeTexture:
 LateralControlMode = car.CarControl.Actuators.LateralControlMode
 
 
+class FakeColor:
+  def __init__(self, r, g, b, a):
+    self.r = r
+    self.g = g
+    self.b = b
+    self.a = a
+
+
+class FakeRectangle:
+  def __init__(self, x, y, width, height):
+    self.x = x
+    self.y = y
+    self.width = width
+    self.height = height
+
+
+class FakeTexture:
+  def __init__(self, name, width, height):
+    self.name = name
+    self.width = width
+    self.height = height
+
+
 class FakeSubMaster(dict):
   def __init__(self, *, lateral_mode, steering_pressed=False, lat_active=True):
     super().__init__({
