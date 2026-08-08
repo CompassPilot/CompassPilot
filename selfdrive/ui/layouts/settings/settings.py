@@ -70,7 +70,7 @@ class SettingsLayout(Widget):
     wifi_manager.set_active(False)
 
     self._panels = {
-      PanelType.STARPILOT: PanelInfo(tr_noop("StarPilot"), StarPilotLayout()),
+      PanelType.STARPILOT: PanelInfo(tr_noop("CompassPilot"), StarPilotLayout()),
       PanelType.DEVICE: PanelInfo(tr_noop("Device"), DeviceLayout()),
       PanelType.NETWORK: PanelInfo(tr_noop("Network"), NetworkUI(wifi_manager)),
       PanelType.TOGGLES: PanelInfo(tr_noop("Toggles"), TogglesLayout()),
@@ -227,9 +227,10 @@ class SettingsLayout(Widget):
         text_color = TEXT_SELECTED if is_selected else TEXT_NORMAL
         # Draw button text (right-aligned)
         panel_name = tr(panel_info.name)
-        text_size = measure_text_cached(self._font_medium, panel_name, 65)
+        font_size = 50 if panel_type == PanelType.STARPILOT else 65
+        text_size = measure_text_cached(self._font_medium, panel_name, font_size)
         text_pos = rl.Vector2(button_rect.x + button_rect.width - text_size.x, button_rect.y + (button_rect.height - text_size.y) / 2)
-        rl.draw_text_ex(self._font_medium, panel_name, rl.Vector2(round(text_pos.x), round(text_pos.y)), 65, 0, text_color)
+        rl.draw_text_ex(self._font_medium, panel_name, rl.Vector2(round(text_pos.x), round(text_pos.y)), font_size, 0, text_color)
 
         # Store button rect for click detection
         panel_info.button_rect = button_rect
