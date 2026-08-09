@@ -93,6 +93,46 @@ def test_get_starpilot_toggles_uses_live_rivian_angle_request(monkeypatch):
   assert toggles.rivian_angle_control is True
 
 
+def test_persisted_force_params_do_not_mutate_cached_broadcast(monkeypatch):
+  spv.process_starpilot_toggles.cache_clear()
+  monkeypatch.delattr(spv.get_starpilot_toggles, "_last_toggles_text", raising=False)
+  monkeypatch.setattr(
+    spv.get_starpilot_toggles,
+    "_params",
+    SimpleNamespace(get_bool=lambda _key: False),
+    raising=False,
+  )
+
+  true_payload = """{
+    "force_offroad": true,
+    "force_onroad": true,
+    "force_torque_controller": true,
+    "rivian_angle_control": true
+  }"""
+  false_payload = """{
+    "force_offroad": false,
+    "force_onroad": false,
+    "force_torque_controller": false,
+    "rivian_angle_control": false
+  }"""
+  true_sm = {"starpilotPlan": SimpleNamespace(starpilotToggles=true_payload)}
+  false_sm = {"starpilotPlan": SimpleNamespace(starpilotToggles=false_payload)}
+
+  manager_toggles = spv.get_starpilot_toggles(true_sm, read_persisted_force_params=True)
+  spv.get_starpilot_toggles(false_sm)
+  card_toggles = spv.get_starpilot_toggles(true_sm)
+
+  assert manager_toggles.force_offroad is False
+  assert manager_toggles.force_onroad is False
+  assert manager_toggles.force_torque_controller is False
+  assert manager_toggles.rivian_angle_control is False
+  assert card_toggles.force_offroad is True
+  assert card_toggles.force_onroad is True
+  assert card_toggles.force_torque_controller is True
+  assert card_toggles.rivian_angle_control is True
+  assert manager_toggles is not card_toggles
+
+
 class _FakeParams:
   def __init__(self, floats=None, ints=None, bools=None):
     self.floats = dict(floats or {})
