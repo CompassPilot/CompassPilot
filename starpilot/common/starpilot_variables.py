@@ -343,14 +343,19 @@ def get_starpilot_toggles(sm=messaging.SubMaster(["starpilotPlan"]), *, read_per
     if not hasattr(get_starpilot_toggles, "_params"):
       get_starpilot_toggles._params = Params(return_defaults=True)
 
-    toggles.force_offroad = get_starpilot_toggles._params.get_bool("ForceOffroad")
-    toggles.force_onroad = get_starpilot_toggles._params.get_bool("ForceOnroad")
+    # process_starpilot_toggles owns and reuses its cached snapshots. Apply
+    # startup overrides to a new snapshot so a transient broadcast/param
+    # mismatch cannot corrupt the cached value inherited by forked processes.
+    values = vars(toggles).copy()
+    values["force_offroad"] = get_starpilot_toggles._params.get_bool("ForceOffroad")
+    values["force_onroad"] = get_starpilot_toggles._params.get_bool("ForceOnroad")
     # Controller selection happens before the first live StarPilot broadcast. Do
     # not let a cached CarParams/controller type hide the persisted user request.
-    toggles.force_torque_controller = get_starpilot_toggles._params.get_bool("ForceTorqueController")
+    values["force_torque_controller"] = get_starpilot_toggles._params.get_bool("ForceTorqueController")
     # Controller selection happens before the first live StarPilot broadcast.
     # Realtime callers use the serialized value to avoid blocking reads.
-    toggles.rivian_angle_control = get_starpilot_toggles._params.get_bool("RivianAngleControl")
+    values["rivian_angle_control"] = get_starpilot_toggles._params.get_bool("RivianAngleControl")
+    toggles = SimpleNamespace(**values)
   return toggles
 
 @cache
