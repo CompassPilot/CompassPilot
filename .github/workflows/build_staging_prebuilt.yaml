@@ -1,0 +1,194 @@
+name: Build Staging Prebuilt
+
+# Development is promoted to source branches before generated prebuilts are
+# published: stg-src to stg, stg-a-src to stg-a, and Rivian-src to Rivian.
+on:
+  push:
+    branches:
+      - stg-src
+      - stg-a-src
+      - Rivian-src
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-staging-prebuilt-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  GIT_EMAIL: "100325903+TonyJOM@users.noreply.github.com"
+  GIT_NAME: "CompassPilot Build Bot"
+
+jobs:
+  build_and_publish:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    steps:
+      - name: Set source and output branches
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "${GITHUB_REF_NAME}" in
+            stg-src|stg-a-src|Rivian-src) ;;
+            *)
+              echo "Unsupported source branch: ${GITHUB_REF_NAME}" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "SOURCE_BRANCH=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          echo "OUTPUT_BRANCH=${GITHUB_REF_NAME%-src}" >> "$GITHUB_ENV"
+
+      - name: Checkout source commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Configure git identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "$GIT_NAME"
+          git config user.email "$GIT_EMAIL"
+          git config http.postBuffer 104857600
+
+      - name: Record source commit
+        shell: bash
+        run: echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Cache TICI sysroot
+        id: sysroot-cache
+        uses: actions/cache@v6
+        with:
+          path: .comma_sysroot
+          key: tici-sysroot-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('system/hardware/tici/agnos.json', 'tools/laptop_device_build/extract_sysroot_from_agnos.py') }}
+
+      - name: Prepare TICI sysroot
+        if: steps.sysroot-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            android-sdk-libsparse-utils \
+            e2fsprogs \
+            xz-utils
+
+          mkdir -p .comma_sysroot "$RUNNER_TEMP/agnos"
+          python3 tools/laptop_device_build/extract_sysroot_from_agnos.py \
+            --manifest system/hardware/tici/agnos.json \
+            --output-dir .comma_sysroot \
+            --cache-dir "$RUNNER_TEMP/agnos"
+          rm -rf "$RUNNER_TEMP/agnos"
+
+      - name: Validate TICI sysroot
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for path in \
+            .comma_sysroot/usr/local/lib \
+            .comma_sysroot/usr/local/include \
+            .comma_sysroot/lib/aarch64-linux-gnu \
+            .comma_sysroot/usr/lib/aarch64-linux-gnu \
+            .comma_sysroot/usr/include \
+            .comma_sysroot/system/vendor/lib64; do
+            test -d "$path"
+          done
+
+          du -sh .comma_sysroot
+          df -h "$GITHUB_WORKSPACE"
+
+      - name: Cache StarPilot build data
+        uses: actions/cache@v6
+        with:
+          path: |
+            .cache/scons
+            .cache/uv
+          key: starpilot-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ github.ref_name }}
+          restore-keys: |
+            starpilot-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build StarPilot device container
+        uses: docker/build-push-action@v7
+        with:
+          context: tools/laptop_device_build
+          file: tools/laptop_device_build/Dockerfile
+          platforms: linux/arm64
+          load: true
+          tags: starpilot-larch64-builder:latest
+          cache-from: type=gha,scope=starpilot-larch64-builder
+          cache-to: type=gha,mode=min,scope=starpilot-larch64-builder
+          provenance: false
+
+      - name: Run StarPilot device build
+        shell: bash
+        env:
+          SP_ENABLE_SCONS_CACHE: "1"
+        run: |
+          set -euo pipefail
+          ./build 4
+
+      - name: Validate build output
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f prebuilt
+
+          if git grep -Il '^version https://git-lfs\.github\.com/spec/v1' > /tmp/lfs_ptrs.txt; then
+            echo "LFS pointer stubs found in build output:" >&2
+            cat /tmp/lfs_ptrs.txt >&2
+            exit 1
+          fi
+
+          while IFS= read -r -d '' path; do
+            if [[ -f "$path" ]] && (( $(stat -c %s "$path") > 103809024 )); then
+              echo "$path"
+            fi
+          done < <(git ls-files -z) > /tmp/oversized_files.txt
+
+          if [[ -s /tmp/oversized_files.txt ]]; then
+            echo "Files larger than 99 MB found in build output:" >&2
+            cat /tmp/oversized_files.txt >&2
+            exit 1
+          fi
+
+      - name: Commit build output
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git add -u
+          git add -- prebuilt
+          git ls-files --error-unmatch prebuilt >/dev/null
+          git commit --allow-empty -m "build" \
+            -m "source branch: ${SOURCE_BRANCH}" \
+            -m "source commit: ${SOURCE_SHA}"
+
+      - name: Publish prebuilt branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          remote_sha="$(git ls-remote --heads origin "refs/heads/${OUTPUT_BRANCH}" | awk '{print $1}')"
+          if [[ -n "$remote_sha" ]]; then
+            git push --force-with-lease="refs/heads/${OUTPUT_BRANCH}:${remote_sha}" \
+              origin "HEAD:refs/heads/${OUTPUT_BRANCH}"
+          else
+            git push origin "HEAD:refs/heads/${OUTPUT_BRANCH}"
+          fi
+
+          {
+            echo "### Prebuilt published"
+            echo "- Source: \`${SOURCE_BRANCH}\` at \`${SOURCE_SHA}\`"
+            echo "- Output: \`${OUTPUT_BRANCH}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
