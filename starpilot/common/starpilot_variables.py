@@ -1649,6 +1649,13 @@ class StarPilotVariables:
       condition=toggle.car_make == "tesla" and toggle.car_model in {TESLA_CAR.TESLA_MODEL_3, TESLA_CAR.TESLA_MODEL_Y, TESLA_CAR.TESLA_MODEL_X},
     )
     toggle.rivian_angle_control = self.get_value("RivianAngleControl", condition=toggle.car_make == "rivian")
+    toggle.rivian_angle_speed_control = self.get_value("RivianAngleSpeedControl", condition=toggle.rivian_angle_control)
+    toggle.rivian_angle_minimum_speed = self.get_value(
+      "RivianAngleMinimumSpeed",
+      cast=float,
+      condition=toggle.rivian_angle_speed_control,
+      conversion=speed_conversion,
+    )
 
     toggle.tethering_config = self.get_value("TetheringEnabled", cast=float)
 
