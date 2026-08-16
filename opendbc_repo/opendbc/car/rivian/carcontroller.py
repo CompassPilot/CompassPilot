@@ -1,6 +1,7 @@
 import numpy as np
 from opendbc.can import CANPacker
 from opendbc.car import Bus, structs
+from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.lateral import apply_driver_steer_torque_limits
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.rivian.ext_controller import HIGH_ANGLE_CAP_FRAC, HIGH_ANGLE_THRESHOLD_DEG, ExternalController
@@ -11,6 +12,10 @@ from opendbc.car.rivian.values import CarControllerParams, RivianFlags
 
 GearShifter = structs.CarState.GearShifter
 LateralControlMode = structs.CarControl.Actuators.LateralControlMode
+
+# Avoid repeatedly entering the protected angle/torque handoff while speed
+# hovers at the configured activation point.
+ANGLE_SPEED_HYSTERESIS = 1.0 * CV.MPH_TO_MS
 
 
 def get_longitudinal_accel(requested_accel: float, gas_pressed: bool, long_active: bool = False,
@@ -34,6 +39,7 @@ class CarController(CarControllerBase):
     self.cancel_frames = 0
     self.toi_controller = ToiController()
     self.angle_harness = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
+    self.angle_speed_active = False
     self.ext_controller = ExternalController(CP) if self.angle_harness else None
     self.angle_saturation_last = None
     self.angle_saturation_params = None
@@ -79,6 +85,20 @@ class CarController(CarControllerBase):
       self.ext_controller.angle_offset_deg = angle_offset_deg
       self.ext_controller.VM.update_params(max(stiffness_factor, 0.1), max(steer_ratio, 0.1))
 
+  def _update_angle_request(self, starpilot_toggles, v_ego: float) -> bool:
+    angle_control = bool(getattr(starpilot_toggles, "rivian_angle_control", False))
+    speed_control = bool(getattr(starpilot_toggles, "rivian_angle_speed_control", False))
+    if not angle_control or not speed_control:
+      self.angle_speed_active = False
+      return angle_control
+
+    minimum_speed = max(float(getattr(starpilot_toggles, "rivian_angle_minimum_speed", 0.0)), 0.0)
+    if self.angle_speed_active:
+      self.angle_speed_active = v_ego >= max(minimum_speed - ANGLE_SPEED_HYSTERESIS, 0.0)
+    else:
+      self.angle_speed_active = v_ego >= minimum_speed
+    return self.angle_speed_active
+
   def update(self, CC, CS, now_nanos, starpilot_toggles):
     actuators = CC.actuators
     can_sends = []
@@ -91,7 +111,7 @@ class CarController(CarControllerBase):
     if self.angle_harness:
       # The Panda permission is capability-gated at fingerprint time; this
       # runtime setting only selects which already-safe channel is active.
-      self.ext_controller.force_torque = not bool(getattr(starpilot_toggles, "rivian_angle_control", False))
+      self.ext_controller.force_torque = not self._update_angle_request(starpilot_toggles, CS.out.vEgo)
       self.ext_controller.update(CS, lat_active, actuators)
       self._publish_angle_saturation()
       apply_torque = self.ext_controller.torque_cmd
