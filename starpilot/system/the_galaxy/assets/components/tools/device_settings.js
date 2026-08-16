@@ -16,6 +16,8 @@ const GM_MAKES = ["Buick", "Cadillac", "Chevrolet", "GMC", "Holden"]
 const HKG_MAKES = ["Genesis", "Hyundai", "Kia"]
 const VEHICLE_SETTING_MAKES = {
   RivianAngleControl: ["Rivian"],
+  RivianAngleSpeedControl: ["Rivian"],
+  RivianAngleMinimumSpeed: ["Rivian"],
   TeslaCoopSteering: ["Tesla"],
   NAPRadarEnabled: ["Tesla"],
   NAPRadarBehindNosecone: ["Tesla"],
