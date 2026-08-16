@@ -218,7 +218,8 @@ class TestRivian:
 
   @staticmethod
   def _controller_actuators(monkeypatch, *, angle_harness, torque_active, requested_torque, applied_torque,
-                            angle_control=True, toi_recovering=False, gen2=False, frame=1):
+                            angle_control=True, angle_speed_control=False, angle_minimum_speed=0.0,
+                            toi_recovering=False, gen2=False, frame=1):
     monkeypatch.setattr(rivian_carcontroller, "create_lka_steering", lambda *args: None)
     monkeypatch.setattr(rivian_carcontroller, "create_angle_steering", lambda *args: None)
     monkeypatch.setattr(rivian_carcontroller, "create_acm_status", lambda *args: None)
@@ -236,6 +237,7 @@ class TestRivian:
       recovery_failed=False,
     )
     controller.angle_harness = angle_harness
+    controller.angle_speed_active = False
     controller.ext_controller = None
     if angle_harness:
       controller.ext_controller = SimpleNamespace(
@@ -273,7 +275,12 @@ class TestRivian:
       vdm_adas_status=(),
     )
 
-    result = controller.update(car_control, car_state, 0, SimpleNamespace(rivian_angle_control=angle_control))[0]
+    toggles = SimpleNamespace(
+      rivian_angle_control=angle_control,
+      rivian_angle_speed_control=angle_speed_control,
+      rivian_angle_minimum_speed=angle_minimum_speed,
+    )
+    result = controller.update(car_control, car_state, 0, toggles)[0]
     result.force_torque = controller.ext_controller.force_torque if angle_harness else None
     return result
 
@@ -297,6 +304,37 @@ class TestRivian:
 
     assert not angle_output.force_torque
     assert torque_output.force_torque
+
+  def test_angle_speed_control_uses_torque_below_minimum_speed(self, monkeypatch):
+    output = self._controller_actuators(
+      monkeypatch,
+      angle_harness=True,
+      torque_active=False,
+      requested_torque=0.0,
+      applied_torque=0,
+      angle_speed_control=True,
+      angle_minimum_speed=20.0,
+    )
+
+    assert output.force_torque
+
+  def test_angle_speed_control_uses_hysteresis_after_activation(self):
+    controller = CarController.__new__(CarController)
+    controller.angle_speed_active = False
+    toggles = SimpleNamespace(
+      rivian_angle_control=True,
+      rivian_angle_speed_control=True,
+      rivian_angle_minimum_speed=20.0 * CV.MPH_TO_MS,
+    )
+
+    assert not controller._update_angle_request(toggles, 19.9 * CV.MPH_TO_MS)
+    assert controller._update_angle_request(toggles, 20.0 * CV.MPH_TO_MS)
+    assert controller._update_angle_request(toggles, 19.5 * CV.MPH_TO_MS)
+    assert not controller._update_angle_request(toggles, 18.9 * CV.MPH_TO_MS)
+
+    toggles.rivian_angle_speed_control = False
+    assert controller._update_angle_request(toggles, 0.0)
+    assert not controller.angle_speed_active
 
   def test_angle_channel_reports_actual_zero_torque(self, monkeypatch):
     output = self._controller_actuators(

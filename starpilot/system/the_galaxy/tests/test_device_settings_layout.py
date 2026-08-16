@@ -201,13 +201,30 @@ def test_human_acceleration_param_is_removed():
 
 def test_rivian_angle_control_is_harness_gated():
   sections = _params_by_section(_layout())
-  setting = sections["Vehicle"]["RivianAngleControl"]
+  vehicle = sections["Vehicle"]
+  setting = vehicle["RivianAngleControl"]
 
   assert setting["ui_type"] == "toggle"
   assert setting["data_type"] == "bool"
+  assert setting["is_parent_toggle"] is True
+  assert setting["favorite_eligible"] is True
   assert setting["requires_capability"] == "HasRivianAngleHarness"
   assert "reboot" not in setting["description"].lower()
   assert _declared_default("RivianAngleControl") == "0"
+
+  speed_control = vehicle["RivianAngleSpeedControl"]
+  minimum_speed = vehicle["RivianAngleMinimumSpeed"]
+  assert speed_control["parent_key"] == "RivianAngleControl"
+  assert speed_control["is_parent_toggle"] is True
+  assert speed_control["requires_capability"] == "HasRivianAngleHarness"
+  assert minimum_speed["parent_key"] == "RivianAngleSpeedControl"
+  assert minimum_speed["requires_capability"] == "HasRivianAngleHarness"
+  assert minimum_speed["data_type"] == "int"
+  assert minimum_speed["min"] == 0
+  assert minimum_speed["max"] == 99
+  assert minimum_speed["step"] == 1
+  assert _declared_default("RivianAngleSpeedControl") == "0"
+  assert _declared_default("RivianAngleMinimumSpeed") == "20.0"
 
 
 def test_aol_configuration_is_unified_and_preserves_default_startup():

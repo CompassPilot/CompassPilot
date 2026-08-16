@@ -283,6 +283,23 @@ def test_rivian_angle_favorite_requires_detected_extreme_harness(monkeypatch):
   ]
 
 
+def test_rivian_angle_speed_controls_are_live_editable(monkeypatch):
+  allowed_types = {
+    "RivianAngleSpeedControl": bool,
+    "RivianAngleMinimumSpeed": float,
+  }
+
+  for key, value, stored_value in (
+    ("RivianAngleSpeedControl", True, "1"),
+    ("RivianAngleMinimumSpeed", 35, "35"),
+  ):
+    client, fake_params = _params_client(monkeypatch, {"IsOnroad": True}, "mici", allowed_types)
+    response = client.put("/api/params", json={"key": key, "value": value})
+
+    assert response.status_code == 200
+    assert fake_params.values[key] == stored_value
+
+
 def test_favorite_action_endpoint_increments_virtual_button_counter(monkeypatch):
   client, _ = _params_client(monkeypatch, {}, "tici")
   fake_memory = WritableFakeParams()

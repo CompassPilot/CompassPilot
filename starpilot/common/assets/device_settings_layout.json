@@ -2792,6 +2792,32 @@
         "description": "Use the Extreme harness angle channel with cooperative torque fallback.",
         "data_type": "bool",
         "ui_type": "toggle",
+        "is_parent_toggle": true,
+        "favorite_eligible": true,
+        "requires_capability": "HasRivianAngleHarness",
+        "settings_tier": "simple"
+      },
+      {
+        "key": "RivianAngleSpeedControl",
+        "label": "Use Angle Above Set Speed",
+        "description": "Use torque steering below the configured speed and request angle steering once the vehicle reaches it.",
+        "data_type": "bool",
+        "ui_type": "toggle",
+        "is_parent_toggle": true,
+        "parent_key": "RivianAngleControl",
+        "requires_capability": "HasRivianAngleHarness",
+        "settings_tier": "simple"
+      },
+      {
+        "key": "RivianAngleMinimumSpeed",
+        "label": "Minimum Angle Speed",
+        "description": "Angle steering activates at or above this speed. The value follows the device's selected speed units.",
+        "data_type": "int",
+        "ui_type": "numeric",
+        "min": 0.0,
+        "max": 99.0,
+        "step": 1.0,
+        "parent_key": "RivianAngleSpeedControl",
         "requires_capability": "HasRivianAngleHarness",
         "settings_tier": "simple"
       },
