@@ -138,6 +138,33 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
     self.assertFalse(self._tx(self.packer.make_can_msg_safety("ACM_SteeringControl", 0, {})))
     self.assertFalse(self._tx(self.packer.make_can_msg_safety("ACM_Status", 0, {})))
 
+  def test_toi_blip_freeze_resume(self):
+    """A feedback-driven ToI release may take more than two zero-command frames.
+    Panda must retain the pre-release reference so torque can resume immediately."""
+    self.safety.init_tests()
+    self.safety.set_timer(self.MIN_VALID_STEERING_RT_INTERVAL)
+    self.safety.set_controls_allowed(True)
+    self._set_prev_torque(self.MAX_TORQUE)
+
+    for _ in range(self.MIN_VALID_STEERING_FRAMES):
+      self.assertTrue(self._tx(self._torque_cmd_msg(self.MAX_TORQUE, steer_req=1)))
+
+    for _ in range(5):
+      self.assertTrue(self._tx(self._torque_cmd_msg(0, steer_req=0)))
+
+    self.assertTrue(self._tx(self._torque_cmd_msg(self.MAX_TORQUE, steer_req=1)))
+
+  def test_toi_torque_reference_resets_while_controls_disallowed(self):
+    self.safety.init_tests()
+    self.safety.set_controls_allowed(True)
+    self._set_prev_torque(self.MAX_TORQUE)
+
+    self.safety.set_controls_allowed(False)
+    self.assertTrue(self._tx(self._torque_cmd_msg(0, steer_req=0)))
+
+    self.safety.set_controls_allowed(True)
+    self.assertFalse(self._tx(self._torque_cmd_msg(self.MAX_TORQUE, steer_req=1)))
+
 
 class TestRivianAngleSafetyBase(TestRivianSafetyBase, common.AngleSteeringSafetyTest):
   ANGLE = True
