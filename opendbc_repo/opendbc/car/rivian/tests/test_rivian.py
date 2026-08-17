@@ -219,7 +219,8 @@ class TestRivian:
   @staticmethod
   def _controller_actuators(monkeypatch, *, angle_harness, torque_active, requested_torque, applied_torque,
                             angle_control=True, angle_speed_control=False, angle_minimum_speed=0.0,
-                            toi_recovering=False, gen2=False, frame=1):
+                            toi_recovering=False, toi_allowed=True, preserve_torque=False,
+                            initial_torque=0, gen2=False, frame=1):
     monkeypatch.setattr(rivian_carcontroller, "create_lka_steering", lambda *args: None)
     monkeypatch.setattr(rivian_carcontroller, "create_angle_steering", lambda *args: None)
     monkeypatch.setattr(rivian_carcontroller, "create_acm_status", lambda *args: None)
@@ -229,12 +230,13 @@ class TestRivian:
     controller.CP = SimpleNamespace(flags=flags, openpilotLongitudinalControl=False)
     controller.packer = None
     controller.frame = frame
-    controller.apply_torque_last = 0
+    controller.apply_torque_last = initial_torque
     controller.cancel_frames = 0
     controller.toi_controller = SimpleNamespace(
-      update=lambda *args: (True, True),
+      update=lambda *args: (True, toi_allowed),
       recovering=toi_recovering,
       recovery_failed=False,
+      preserve_torque=preserve_torque,
     )
     controller.angle_harness = angle_harness
     controller.angle_speed_active = False
@@ -282,6 +284,7 @@ class TestRivian:
     )
     result = controller.update(car_control, car_state, 0, toggles)[0]
     result.force_torque = controller.ext_controller.force_torque if angle_harness else None
+    result.apply_torque_last = controller.apply_torque_last
     return result
 
   def test_angle_toggle_selects_controller_live(self, monkeypatch):
@@ -384,6 +387,23 @@ class TestRivian:
     assert output.torque == 80 / steer_max
     assert output.torqueOutputCan == 80
     assert output.lateralControlMode == structs.CarControl.Actuators.LateralControlMode.torque
+
+  def test_torque_harness_high_angle_recovery_preserves_limiter(self, monkeypatch):
+    output = self._controller_actuators(
+      monkeypatch,
+      angle_harness=False,
+      torque_active=False,
+      requested_torque=1.0,
+      applied_torque=0,
+      toi_recovering=True,
+      toi_allowed=False,
+      preserve_torque=True,
+      initial_torque=100,
+    )
+
+    assert output.torqueOutputCan == 0
+    assert output.apply_torque_last == 100
+    assert output.lateralControlMode == structs.CarControl.Actuators.LateralControlMode.torqueRecovering
 
   def test_torque_recovery_is_reported_explicitly(self, monkeypatch):
     output = self._controller_actuators(
@@ -621,6 +641,7 @@ class TestRivian:
 
     assert controller.update(True, True, False, True, False) == (False, False)
     assert controller.state == ToiState.RELEASING
+    assert controller.preserve_torque
 
     # Unlike the old two-frame blip, the request stays low for as long as the
     # EPAS continues reporting that torque overlay is active.
@@ -631,7 +652,9 @@ class TestRivian:
       assert controller.update(True, True, False, False, False) == (False, False)
 
     assert controller.state == ToiState.REARMING
+    assert controller.preserve_torque
     assert controller.update(True, True, False, False, False) == (True, False)
+    assert controller.preserve_torque
 
   def test_driver_override_recovery_waits_for_lower_angle_before_rearming(self):
     controller = ToiController()
@@ -642,6 +665,7 @@ class TestRivian:
                                hold_high_angle_release=True) == (False, False)
 
     assert controller.state == ToiState.HIGH_ANGLE_LOCKOUT
+    assert not controller.preserve_torque
     for _ in range(TOI_RECOVERY_TIMEOUT_FRAMES + 1):
       assert controller.update(True, True, False, False, False, high_angle_rearm=False,
                                hold_high_angle_release=True) == (False, False)
@@ -671,6 +695,7 @@ class TestRivian:
 
     assert controller.update(True, False, True, False, False) == (False, False)
     assert controller.state == ToiState.RELEASING
+    assert not controller.preserve_torque
 
   def test_toi_recovery_timeout_is_reported_and_request_stays_released(self):
     controller = ToiController()
@@ -681,6 +706,55 @@ class TestRivian:
 
     assert controller.recovery_failed
     assert controller.state == ToiState.RELEASING
+    assert not controller.preserve_torque
+
+  def test_high_angle_toi_release_freezes_and_resumes_external_torque_limiter(self):
+    controller = ExternalController.__new__(ExternalController)
+    controller.torque_active = True
+    controller.torque_prearm = False
+    controller.driver_override_recovery = False
+    controller.apply_torque_last = 100
+    controller.torque_cmd = 100
+    controller.toi_controller = ToiController()
+    controller.toi_controller.state = ToiState.TORQUE
+    controller.toi_controller.high_angle_frames = TOI_MAX_ANGLE_FRAMES
+
+    car_state = SimpleNamespace(
+      out=SimpleNamespace(vEgoRaw=10.0, steeringTorque=0.0, steeringAngleDeg=100.0),
+      toi_fault=False,
+      toi_active=True,
+      toi_unavailable=False,
+    )
+    steer_max = round(float(ext_controller.np.interp(
+      car_state.out.vEgoRaw,
+      ext_controller.CCP.STEER_MAX_LOOKUP[0],
+      ext_controller.CCP.STEER_MAX_LOOKUP[1],
+    )))
+    actuators = SimpleNamespace(torque=100 / steer_max)
+
+    controller._update_torque(car_state, actuators)
+    assert controller.toi_controller.state == ToiState.RELEASING
+    assert controller.toi_controller.preserve_torque
+    assert controller.apply_torque_last == 100
+    assert controller.torque_cmd == 0
+
+    car_state.toi_active = False
+    for _ in range(TOI_ACK_FRAMES):
+      controller._update_torque(car_state, actuators)
+    assert controller.toi_controller.state == ToiState.REARMING
+    assert controller.apply_torque_last == 100
+
+    controller._update_torque(car_state, actuators)
+    car_state.toi_active = True
+    for _ in range(TOI_ACK_FRAMES):
+      controller._update_torque(car_state, actuators)
+    assert controller.toi_controller.state == ToiState.TORQUE
+    assert controller.apply_torque_last == 100
+
+    controller._update_torque(car_state, actuators)
+    assert not controller.toi_controller.preserve_torque
+    assert controller.apply_torque_last == 100
+    assert controller.torque_cmd == 100
 
   def test_toi_release_resets_external_torque_limiter(self):
     controller = ExternalController.__new__(ExternalController)
@@ -693,6 +767,7 @@ class TestRivian:
       update=lambda *args, **kwargs: (False, False),
       recovering=True,
       recovery_failed=False,
+      preserve_torque=False,
     )
 
     car_state = SimpleNamespace(

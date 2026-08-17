@@ -121,6 +121,7 @@ typedef struct {
   const int max_invalid_request_frames;
   const uint32_t min_valid_request_rt_interval;
   const bool has_steer_req_tolerance;
+  const bool preserve_torque_on_zero_request;
 } TorqueSteeringLimits;
 
 typedef struct {

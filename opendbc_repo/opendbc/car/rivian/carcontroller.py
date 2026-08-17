@@ -132,8 +132,10 @@ class CarController(CarControllerBase):
         if abs(CS.out.steeringAngleDeg) > HIGH_ANGLE_THRESHOLD_DEG:
           cap = int(round(steer_max * HIGH_ANGLE_CAP_FRAC))
           apply_torque = int(np.clip(apply_torque, -cap, cap))
+        self.apply_torque_last = apply_torque
+      elif not self.toi_controller.preserve_torque:
+        self.apply_torque_last = 0
 
-    self.apply_torque_last = apply_torque
     self._publish_toi_recovery_failed()
     can_sends.append(create_lka_steering(self.packer, self.frame, CS.acm_lka_hba_cmd,
                                          apply_torque, CC.enabled, torque_request))

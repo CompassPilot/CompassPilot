@@ -413,9 +413,11 @@ class ExternalController:
       return
 
     if not torque_allowed:
-      # The EPAS has either not acknowledged the request yet or is completing a
-      # high-angle release. Reset the limiter to the torque actually sent.
-      self.apply_torque_last = 0
+      # Preserve the limiter only through a scheduled high-angle ToI cycle so
+      # assist resumes without a sawtooth. Engagement waits, actual faults, and
+      # failed recovery still reset to the zero command sent on the wire.
+      if not self.toi_controller.preserve_torque:
+        self.apply_torque_last = 0
       self.torque_cmd = 0
       return
 
