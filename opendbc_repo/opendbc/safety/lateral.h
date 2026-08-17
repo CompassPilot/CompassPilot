@@ -73,24 +73,35 @@ bool steer_torque_cmd_checks(int desired_torque, int steer_req, const TorqueStee
     // *** global torque limit check ***
     violation |= safety_max_limit_check(desired_torque, max_torque, -max_torque);
 
+    // Some EPS fault-avoidance handshakes require a zero-torque request cut.
+    // Preserve the rate-limit reference so assist can resume without a sawtooth.
+    const bool zero_request_cut = limits.preserve_torque_on_zero_request &&
+                                  (steer_req == 0) && (desired_torque == 0);
+
     // *** torque rate limit check ***
-    if (limits.type == TorqueDriverLimited) {
-      violation |= driver_limit_check(desired_torque, desired_torque_last, &torque_driver,
-                                      max_torque, limits.max_rate_up, limits.max_rate_down,
-                                      limits.driver_torque_allowance, limits.driver_torque_multiplier);
-    } else {
-      violation |= dist_to_meas_check(desired_torque, desired_torque_last, &torque_meas,
-                                      limits.max_rate_up, limits.max_rate_down, limits.max_torque_error);
+    if (!zero_request_cut) {
+      if (limits.type == TorqueDriverLimited) {
+        violation |= driver_limit_check(desired_torque, desired_torque_last, &torque_driver,
+                                        max_torque, limits.max_rate_up, limits.max_rate_down,
+                                        limits.driver_torque_allowance, limits.driver_torque_multiplier);
+      } else {
+        violation |= dist_to_meas_check(desired_torque, desired_torque_last, &torque_meas,
+                                        limits.max_rate_up, limits.max_rate_down, limits.max_torque_error);
+      }
+      desired_torque_last = desired_torque;
     }
-    desired_torque_last = desired_torque;
 
     // *** torque real time rate limit check ***
-    violation |= rt_torque_rate_limit_check(desired_torque, rt_torque_last, limits.max_rt_delta);
+    if (!zero_request_cut) {
+      violation |= rt_torque_rate_limit_check(desired_torque, rt_torque_last, limits.max_rt_delta);
+    }
 
     // every RT_INTERVAL set the new limits
     uint32_t ts_elapsed = safety_get_ts_elapsed(ts, ts_torque_check_last);
     if (ts_elapsed > MAX_RT_INTERVAL) {
-      rt_torque_last = desired_torque;
+      if (!zero_request_cut) {
+        rt_torque_last = desired_torque;
+      }
       ts_torque_check_last = ts;
     }
   }

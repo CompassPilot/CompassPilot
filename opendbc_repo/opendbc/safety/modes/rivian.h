@@ -203,6 +203,9 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
     .max_invalid_request_frames = 2,
     .min_valid_request_rt_interval = 810000,
     .has_steer_req_tolerance = true,
+    // The EPAS needs a zero-command ToI release above 90 degrees. Hold Panda's
+    // limiter reference through that release so the prior torque may resume.
+    .preserve_torque_on_zero_request = true,
   };
 
   const LongitudinalLimits RIVIAN_LONG_LIMITS = {
