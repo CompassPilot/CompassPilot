@@ -3,6 +3,16 @@
 #include "opendbc/safety/declarations.h"
 
 static bool rivian_angle_control = false;
+static bool rivian_aol_lateral = false;
+static bool rivian_aol_brake_remains_active = false;
+static bool rivian_aol_stalk_toggle = false;
+static bool rivian_aol_start_pending = false;
+static bool rivian_aol_lkas_pending = false;
+static bool rivian_aol_acc_enabled = false;
+static bool rivian_aol_available = false;
+static bool rivian_aol_in_drive = false;
+static bool rivian_aol_driving_seen = false;
+static uint8_t rivian_prev_user_adas_request = 0U;
 
 static uint8_t rivian_get_counter(const CANPacket_t *msg) {
   uint8_t cnt = 0;
@@ -148,8 +158,33 @@ static void rivian_rx_hook(const CANPacket_t *msg) {
     // Cruise state
     if (msg->addr == 0x100U) {
       const int feature_status = msg->data[2] >> 5U;
-      pcm_cruise_check(feature_status == 1);
-      acc_main_on = (feature_status == 0) || (feature_status == 1);
+      const bool acc_enabled = feature_status == 1;
+      pcm_cruise_check(acc_enabled);
+
+      if (rivian_aol_lateral) {
+        rivian_aol_available = (feature_status == 0) || acc_enabled;
+        if (!rivian_aol_available) {
+          rivian_aol_start_pending = false;
+          rivian_aol_lkas_pending = false;
+          lkas_on = false;
+        } else if (acc_enabled && !rivian_aol_acc_enabled) {
+          rivian_aol_start_pending = false;
+          rivian_aol_lkas_pending = false;
+          lkas_on = true;
+        } else if (rivian_aol_start_pending && rivian_aol_in_drive && rivian_aol_available) {
+          rivian_aol_start_pending = false;
+          lkas_on = true;
+        } else if (rivian_aol_lkas_pending) {
+          // Resolve the deferred half-up request on the next 100 Hz ACM_Status message.
+          lkas_on = !lkas_on;
+          rivian_aol_lkas_pending = false;
+        }
+        rivian_aol_acc_enabled = acc_enabled;
+        // AOL lateral permission comes only from its latch, not ACC availability.
+        acc_main_on = false;
+      } else {
+        acc_main_on = (feature_status == 0) || acc_enabled;
+      }
     }
   }
 }
@@ -221,10 +256,15 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
     if (msg->addr == 0x110U) {
       int desired_angle = ((msg->data[2] << 7) | (msg->data[3] >> 1)) - 16384U;
       bool angle_active = GET_BIT(msg, 12U);
+      const bool aol_rearmed = rivian_aol_host_rearm(angle_active);
       const bool angle_violation = !rivian_angle_control || steer_angle_cmd_checks_vm(desired_angle, angle_active,
                                                                                       RIVIAN_ANGLE_STEERING_LIMITS,
                                                                                       RIVIAN_ANGLE_STEERING_PARAMS);
       if (angle_violation) {
+        if (aol_rearmed) {
+          lkas_on = false;
+          aol_allowed = false;
+        }
         tx = false;
       }
     }
@@ -275,9 +315,33 @@ static safety_config rivian_init(uint16_t param) {
     {.msg = {{0x100, 2, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},  // ACM_Status (cruise state)
   };
 
+  static RxCheck rivian_aol_rx_checks[] = {
+    {.msg = {{0x208, 0, 8, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                              // ESP_Status (speed)
+    {.msg = {{0x150, 0, 7, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                              // VDM_PropStatus (gas, gear & speed)
+    {.msg = {{0x162, 0, 8, 50U, .max_counter = 14U, .ignore_quality_flag = true}, { 0 }, { 0 }}},                                 // VDM_AdasSts (stalk requests)
+    {.msg = {{0x380, 0, 5, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // EPAS_SystemStatus (driver torque)
+    {.msg = {{0x390, 0, 7, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // EPAS_AdasStatus (measured angle)
+    {.msg = {{0x38f, 0, 6, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},    // iBESP2 (brakes)
+    {.msg = {{0x100, 2, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // ACM_Status (cruise state)
+  };
+
   bool rivian_longitudinal = false;
   const int FLAG_RIVIAN_ANGLE_CONTROL = 2;
+  const int FLAG_RIVIAN_AOL_LATERAL = 4;
+  const int FLAG_RIVIAN_AOL_BRAKE_REMAINS_ACTIVE = 8;
+  const int FLAG_RIVIAN_AOL_STALK_TOGGLE = 16;
+  const int FLAG_RIVIAN_AOL_START_ENABLED = 32;
   rivian_angle_control = GET_FLAG(param, FLAG_RIVIAN_ANGLE_CONTROL);
+  rivian_aol_lateral = GET_FLAG(param, FLAG_RIVIAN_AOL_LATERAL);
+  rivian_aol_brake_remains_active = rivian_aol_lateral && GET_FLAG(param, FLAG_RIVIAN_AOL_BRAKE_REMAINS_ACTIVE);
+  rivian_aol_stalk_toggle = rivian_aol_lateral && GET_FLAG(param, FLAG_RIVIAN_AOL_STALK_TOGGLE);
+  rivian_aol_start_pending = rivian_aol_lateral && GET_FLAG(param, FLAG_RIVIAN_AOL_START_ENABLED);
+  rivian_aol_lkas_pending = false;
+  rivian_aol_acc_enabled = false;
+  rivian_aol_available = false;
+  rivian_aol_in_drive = false;
+  rivian_aol_driving_seen = false;
+  rivian_prev_user_adas_request = 0U;
 
   #ifdef ALLOW_DEBUG
     const int FLAG_RIVIAN_LONG_CONTROL = 1;
@@ -296,6 +360,9 @@ static safety_config rivian_init(uint16_t param) {
     config = BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_ANGLE_TX_MSGS);
   } else {
     config = BUILD_SAFETY_CFG(rivian_rx_checks, RIVIAN_TX_MSGS);
+  }
+  if (rivian_aol_lateral) {
+    SET_RX_CHECKS(rivian_aol_rx_checks, config);
   }
   return config;
 }
