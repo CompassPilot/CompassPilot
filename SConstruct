@@ -205,6 +205,10 @@ if arch == "larch64":
     tici_libpath("/usr/include"),
     tici_libpath("/usr/include/aarch64-linux-gnu"),
   ]
+  # AGNOS provides Eigen headers through comma-deps-eigen in the managed venv.
+  agnos_eigen_include = os.path.join(sysconfig.get_paths()['purelib'], 'eigen', 'install')
+  if os.path.isdir(agnos_eigen_include):
+    cpppath.append(agnos_eigen_include)
 
   libpath = [
     tici_libpath("/usr/local/lib"),
