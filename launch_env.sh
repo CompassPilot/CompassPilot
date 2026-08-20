@@ -9,6 +9,10 @@ export VECLIB_MAXIMUM_THREADS=1
 # On AGNOS, prefer the managed venv runtime (has required Python deps like pyzmq).
 if [ -x /usr/local/venv/bin/python3 ]; then
   export PATH="/usr/local/venv/bin:${PATH}"
+  # Keep C++ schema generation aligned with AGNOS' native libcapnp headers.
+  if [ -x /usr/local/bin/capnpc ]; then
+    export CAPNPC="/usr/local/bin/capnpc"
+  fi
 fi
 
 # models get lower priority than ui
