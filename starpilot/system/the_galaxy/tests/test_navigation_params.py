@@ -3,6 +3,7 @@ import sys
 from dataclasses import asdict
 
 from openpilot.common.params import ParamKeyType
+from openpilot.starpilot.common.favorite_slots import build_favorite_slot_options as build_shared_favorite_slot_options
 
 from test_dashboard_stats import MODULE_DIR, _install_server_import_stubs
 
@@ -99,18 +100,13 @@ class WritableFakeParams:
 def _params_client(monkeypatch, values, device_type, allowed_types=None):
   fake_params = WritableFakeParams(values)
   monkeypatch.setattr(the_galaxy, "params", fake_params)
-  monkeypatch.setattr(
-    the_galaxy,
-    "_get_param_type_info",
-    lambda: (
-      {"AlphaLongitudinalEnabled", "ForceOffroad", "FordLateralMode"},
-      {
-        "AlphaLongitudinalEnabled": bool,
-        "ForceOffroad": bool,
-        "FordLateralMode": int,
-      },
-    ),
-  )
+  allowed_types = allowed_types or {
+    "AlphaLongitudinalEnabled": bool,
+    "ForceOffroad": bool,
+    "FordLateralMode": int,
+  }
+  monkeypatch.setattr(the_galaxy, "_get_param_type_info", lambda: (set(allowed_types), allowed_types))
+  monkeypatch.setattr(the_galaxy, "update_starpilot_toggles", lambda: None)
   monkeypatch.setattr(the_galaxy.HARDWARE, "get_device_type", lambda: device_type)
   monkeypatch.setattr(the_galaxy.Paths, "comma_home", lambda: "/tmp/dashboard-test-home", raising=False)
 
@@ -622,6 +618,28 @@ def test_favorite_action_endpoint_increments_virtual_button_counter(monkeypatch)
   assert fake_memory.get_int("FavoriteVirtualAccelCruiseCounter") == 1
 
 
+def test_aol_favorite_action_toggles_drive_scoped_counter(monkeypatch):
+  client, _ = _params_client(monkeypatch, {}, "tici")
+  fake_memory = WritableFakeParams()
+  monkeypatch.setattr(the_galaxy, "params_memory", fake_memory)
+
+  response = client.post("/api/favorites/action", json={"key": "__starpilot_favorite_action__:aol_toggle"})
+
+  assert response.status_code == 200
+  assert fake_memory.get_int("FavoriteAOLToggleCounter") == 1
+
+
+def test_aol_favorite_value_reports_live_drive_state(monkeypatch):
+  fake_memory = WritableFakeParams({"AOLActive": True})
+  monkeypatch.setattr(the_galaxy, "params_memory", fake_memory)
+
+  values = the_galaxy._configured_favorite_slot_values([
+    {"key": "__starpilot_favorite_action__:aol_toggle"},
+  ])
+
+  assert values == {"__starpilot_favorite_action__:aol_toggle": True}
+
+
 def test_alpha_longitudinal_toggle_writes_and_requests_offroad_cycle(monkeypatch):
   client, fake_params = _params_client(monkeypatch, {
     "AlphaLongitudinalEnabled": False,
@@ -797,6 +815,7 @@ def test_rivian_half_up_stalk_control_validates_button_actions(monkeypatch):
 
 
 def test_aol_live_action_replaces_master_in_favorite_options(monkeypatch):
+  monkeypatch.setattr(the_galaxy, "build_favorite_slot_options", build_shared_favorite_slot_options)
   monkeypatch.setattr(
     the_galaxy,
     "_get_param_type_info",

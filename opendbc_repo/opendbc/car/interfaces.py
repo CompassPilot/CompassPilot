@@ -271,6 +271,16 @@ class CarInterfaceBase(ABC):
             getattr(starpilot_toggles, "main_cruise_aol_toggle", False):
           fp_ret.safetyConfigs[-1].safetyParam |= HyundaiStarPilotSafetyFlags.AOL_MAIN_LKAS_SYNC.value
 
+      elif platform in RIVIAN:
+        if getattr(starpilot_toggles, "always_on_lateral", False):
+          fp_ret.safetyConfigs[-1].safetyParam |= RivianSafetyFlags.AOL_LATERAL.value
+          if getattr(starpilot_toggles, "aol_brake_behavior", 0) == 1:
+            fp_ret.safetyConfigs[-1].safetyParam |= RivianSafetyFlags.AOL_BRAKE_REMAINS_ACTIVE.value
+          if getattr(starpilot_toggles, "rivian_half_up_stalk_aol_toggle", False):
+            fp_ret.safetyConfigs[-1].safetyParam |= RivianSafetyFlags.AOL_STALK_TOGGLE.value
+          if getattr(starpilot_toggles, "aol_startup_enabled", True):
+            fp_ret.safetyConfigs[-1].safetyParam |= RivianSafetyFlags.AOL_START_ENABLED.value
+
       elif platform in TOYOTA:
         fp_ret.canUsePedal = not CP.autoResumeSng
         fp_ret.canUseSDSU = candidate not in UNSUPPORTED_DSU_CAR and candidate not in TSS2_CAR

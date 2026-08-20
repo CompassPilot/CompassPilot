@@ -88,24 +88,24 @@ class StarPilotCard:
     # Rivian keeps ACC enabled while accelerator override temporarily pauses longActive.
     traffic_mode_allowed = self._rivian_acc_enabled if self.CP.brand == "rivian" else sm["carControl"].longActive
 
-    if sm["carControl"].longActive and getattr(starpilot_toggles, f"experimental_mode_via_{key}"):
+    if sm["carControl"].longActive and getattr(starpilot_toggles, f"experimental_mode_via_{key}", False):
       self.handle_experimental_mode(sm, starpilot_toggles)
-    elif getattr(starpilot_toggles, f"bookmark_via_{key}"):
+    elif getattr(starpilot_toggles, f"bookmark_via_{key}", False):
       self.handle_bookmark()
-    elif getattr(starpilot_toggles, f"force_coast_via_{key}"):
+    elif getattr(starpilot_toggles, f"force_coast_via_{key}", False):
       self.force_coast = not self.force_coast
-    elif getattr(starpilot_toggles, f"pulse_and_glide_via_{key}"):
+    elif getattr(starpilot_toggles, f"pulse_and_glide_via_{key}", False):
       if getattr(sm["carControl"], "longActive", False) or self.pulse_and_glide:
         self.pulse_and_glide = not self.pulse_and_glide
         return True
-    elif getattr(starpilot_toggles, f"pause_lateral_via_{key}"):
+    elif getattr(starpilot_toggles, f"pause_lateral_via_{key}", False):
       self.pause_lateral = not self.pause_lateral
-    elif getattr(starpilot_toggles, f"pause_longitudinal_via_{key}"):
+    elif getattr(starpilot_toggles, f"pause_longitudinal_via_{key}", False):
       self.pause_longitudinal = not self.pause_longitudinal
-    elif getattr(starpilot_toggles, f"switchback_mode_via_{key}"):
+    elif getattr(starpilot_toggles, f"switchback_mode_via_{key}", False):
       self.switchback_mode_enabled = not self.switchback_mode_enabled
       self.params_memory.put_bool("SwitchbackModeEnabled", self.switchback_mode_enabled)
-    elif traffic_mode_allowed and getattr(starpilot_toggles, f"traffic_mode_via_{key}"):
+    elif traffic_mode_allowed and getattr(starpilot_toggles, f"traffic_mode_via_{key}", False):
       self.traffic_mode_enabled = not self.traffic_mode_enabled
     else:
       for slot_index in range(3):
@@ -411,7 +411,10 @@ class StarPilotCard:
       self.cancel_pulse_glide_suppressed = False
 
     if lkas_pressed:
-      if self.CP.brand != "ford" or carState.cruiseState.available:
+      if self.CP.brand == "rivian":
+        if not getattr(starpilot_toggles, "rivian_half_up_stalk_aol_toggle", False):
+          self.handle_button_event("rivian_half_up", sm, starpilot_toggles)
+      elif self.CP.brand != "ford" or carState.cruiseState.available:
         if self.CP.brand == "ford" and getattr(starpilot_toggles, "ford_lkas_aol_toggle", False):
           self.pause_lateral = not self.pause_lateral
         else:

@@ -348,6 +348,7 @@ def _install_server_import_stubs():
   sys.modules["openpilot.starpilot.system.the_galaxy.factory_reset"] = _simple_module(
     "openpilot.starpilot.system.the_galaxy.factory_reset",
     remove_path=lambda *args, **kwargs: None,
+    request_system_factory_reset=lambda: None,
   )
   sys.modules["openpilot.starpilot.system.the_galaxy.flm_workspace"] = _simple_module(
     "openpilot.starpilot.system.the_galaxy.flm_workspace",

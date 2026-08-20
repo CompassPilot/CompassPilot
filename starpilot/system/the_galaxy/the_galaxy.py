@@ -3294,7 +3294,10 @@ def _get_favorite_slot_options():
 def _get_available_favorite_slot_options():
   return filter_favorite_slot_options(
     _get_favorite_slot_options(),
-    {"HasRivianAngleHarness": _get_has_rivian_angle_harness()},
+    {
+      "HasRivianAngleHarness": _get_has_rivian_angle_harness(),
+      "IsRivian": _get_is_rivian(),
+    },
   )
 
 
@@ -4100,6 +4103,17 @@ def _get_has_rivian_angle_harness():
   try:
     with car.CarParams.from_bytes(cp_bytes) as cp:
       return cp.brand == "rivian" and bool(int(getattr(cp, "flags", 0)) & RIVIAN_ANGLE_HARNESS_FLAG)
+  except Exception:
+    return False
+
+def _get_is_rivian():
+  cp_bytes = _safe_params_get_live_raw("CarParamsPersistent")
+  if not cp_bytes:
+    return False
+
+  try:
+    with car.CarParams.from_bytes(cp_bytes) as cp:
+      return cp.brand == "rivian"
   except Exception:
     return False
 
@@ -6028,6 +6042,7 @@ def setup(app):
     result["VehicleParked"] = _get_vehicle_parked()
     result["AlphaLongitudinalAvailable"] = _get_alpha_longitudinal_available()
     result["HasRivianAngleHarness"] = _get_has_rivian_angle_harness()
+    result["IsRivian"] = _get_is_rivian()
 
     for key in ("CalibratedLateralAcceleration", "CalibrationProgress"):
       try:

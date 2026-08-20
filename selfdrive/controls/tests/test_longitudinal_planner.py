@@ -17,7 +17,8 @@ from opendbc.car.toyota.values import CAR as TOYOTA_CAR
 import openpilot.selfdrive.controls.lib.longitudinal_planner as longitudinal_planner_module
 from openpilot.selfdrive.controls.lib.longcontrol import LongCtrlState
 from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N
-from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner, get_coast_accel, get_vehicle_min_accel, should_publish_planner_fcw
+from openpilot.selfdrive.controls.lib.longitudinal_planner import (LongitudinalPlanner, get_coast_accel, get_planner_v_ego,
+                                                                  get_vehicle_min_accel, should_publish_planner_fcw)
 from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import (
   LongitudinalMpc,
   build_model_lead_trajectory,
