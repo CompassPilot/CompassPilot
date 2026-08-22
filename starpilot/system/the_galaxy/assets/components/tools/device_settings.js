@@ -2671,6 +2671,7 @@ function renderSettingRow(p) {
         id="ds-${p.key}"
         value="${() => toSelectValue(state.values[p.key])}"
         placeholder="${p.placeholder || ""}"
+        maxlength="${p.max_length || ""}"
         disabled="${() => isLocked()}"
         @change="${() => updateParam(p.key, "text")}" />
     `
