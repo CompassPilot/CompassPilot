@@ -5,6 +5,7 @@ from openpilot.system.manager.launch_param_migrations import (
   BRANCH_DEFAULTS_MIGRATION_MARKER,
   CAMERA_VIEW_DEFAULT_MIGRATION_MARKER,
   DEFAULT_CAMERA_VIEW,
+  DEFAULT_HOME_SCREEN_NAME,
   DEVELOPER_METRIC_DISPLAY_KEYS,
   DEVELOPER_METRIC_DISPLAY_MIGRATION_MARKER,
   DEFAULT_LANE_CHANGE_SMOOTHING,
@@ -13,6 +14,7 @@ from openpilot.system.manager.launch_param_migrations import (
   LANE_CHANGE_SMOOTHING_MIGRATION_MARKER,
   LAUNCH_PARAM_MIGRATION_MARKER,
   LATERAL_METHOD_REBRAND_MIGRATION_MARKER,
+  HOME_SCREEN_BRAND_MIGRATION_MARKER,
   MARKER_DIRNAME,
   STANDARD_ACCELERATION_PROFILE,
   SPEED_LIMIT_VISIBILITY_MIGRATION_MARKER,
@@ -417,3 +419,32 @@ def test_apply_launch_param_migrations_does_not_reapply_lane_change_smoothing_af
   apply_launch_param_migrations(params)
 
   assert params.get_int("LaneChangeSmoothing") == 10
+
+
+def test_apply_launch_param_migrations_rebrands_legacy_home_screen_name(tmp_path):
+  params = FileBackedFakeParams(tmp_path / "params")
+  params.put("HomeScreenName", "StarPilot")
+
+  apply_launch_param_migrations(params)
+
+  assert params.get("HomeScreenName") == DEFAULT_HOME_SCREEN_NAME
+  assert marker_path(tmp_path, HOME_SCREEN_BRAND_MIGRATION_MARKER).is_file()
+
+
+def test_apply_launch_param_migrations_preserves_custom_home_screen_name(tmp_path):
+  params = FileBackedFakeParams(tmp_path / "params")
+  params.put("HomeScreenName", "RoadTrip")
+
+  apply_launch_param_migrations(params)
+
+  assert params.get("HomeScreenName") == "RoadTrip"
+
+
+def test_apply_launch_param_migrations_does_not_reapply_home_screen_rebrand(tmp_path):
+  params = FileBackedFakeParams(tmp_path / "params")
+  params.put("HomeScreenName", "StarPilot")
+  marker_path(tmp_path, HOME_SCREEN_BRAND_MIGRATION_MARKER).touch()
+
+  apply_launch_param_migrations(params)
+
+  assert params.get("HomeScreenName") == "StarPilot"

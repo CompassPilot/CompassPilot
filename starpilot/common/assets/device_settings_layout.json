@@ -2089,10 +2089,10 @@
       {
         "key": "HomeScreenName",
         "label": "Custom Home Screen Name",
-        "description": "Replace the StarPilot wordmark on the home screen. Leave it blank to use StarPilot. Maximum 12 characters.",
+        "description": "Replace the CompassPilot wordmark on the home screen. Leave it blank to use CompassPilot. Maximum 12 characters.",
         "data_type": "string",
         "ui_type": "text",
-        "placeholder": "StarPilot",
+        "placeholder": "CompassPilot",
         "max_length": 12,
         "settings_tier": "advanced"
       },
@@ -2160,7 +2160,7 @@
       {
         "key": "CustomUI",
         "label": "Driving Screen Widgets",
-        "description": "Custom StarPilot widgets for the driving screen.",
+        "description": "Custom CompassPilot widgets for the driving screen.",
         "data_type": "bool",
         "ui_type": "toggle",
         "is_parent_toggle": true,
@@ -4348,7 +4348,7 @@
       {
         "key": "RedneckCruise",
         "label": "Redneck Cruise",
-        "description": "On supported Hyundai stock-cruise cars, use RES/SET button presses to match the cluster set speed to StarPilot's target.",
+        "description": "On supported Hyundai stock-cruise cars, use RES/SET button presses to match the cluster set speed to CompassPilot's target.",
         "data_type": "bool",
         "ui_type": "toggle",
         "parent_key": "GalaxyDeveloperMode",

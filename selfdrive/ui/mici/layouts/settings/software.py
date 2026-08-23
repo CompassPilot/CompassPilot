@@ -297,7 +297,7 @@ class SoftwareLayoutMici(NavScroller):
 
     self._automatic_updates_btn = BigParamControl("auto updates", "AutomaticUpdates")
 
-    uninstall_openpilot_btn = EngagedConfirmationButton("uninstall\nStarPilot", "uninstall",
+    uninstall_openpilot_btn = EngagedConfirmationButton("uninstall\nCompassPilot", "uninstall",
                                                         gui_app.texture("icons_mici/settings/device/uninstall.png", 64, 64),
                                                         uninstall_openpilot_callback, exit_on_confirm=False)
 

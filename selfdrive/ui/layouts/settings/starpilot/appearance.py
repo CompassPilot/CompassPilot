@@ -701,11 +701,11 @@ class StarPilotAppearanceLayout(_SettingsPage):
         if current_top == "Be ready to take over at any time":
             return "Stock"
         if current_top == "Hop in and buckle up!":
-            return "StarPilot"
+            return "CompassPilot"
         return "Clear"
 
     def _show_startup_alert_selector(self):
-        options = ["Stock", "StarPilot", "Clear"]
+        options = ["Stock", "CompassPilot", "Clear"]
         current = self._get_startup_alert_display()
 
         def on_select(res):
@@ -713,7 +713,7 @@ class StarPilotAppearanceLayout(_SettingsPage):
                 if dialog.selection == "Stock":
                     self._params.put("StartupMessageTop", "Be ready to take over at any time")
                     self._params.put("StartupMessageBottom", "Always keep hands on wheel and eyes on road")
-                elif dialog.selection == "StarPilot":
+                elif dialog.selection == "CompassPilot":
                     self._params.put("StartupMessageTop", "Hop in and buckle up!")
                     self._params.put("StartupMessageBottom", "Human-tested, frog-approved")
                 else:

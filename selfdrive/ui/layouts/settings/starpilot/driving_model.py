@@ -1147,7 +1147,7 @@ class StarPilotDrivingModelLayout(_SettingsPage):
     if self._params.get_bool("ModelRandomizer"):
       return tr("Models are selected automatically each drive. Disable Randomizer to choose manually.")
     if self._manifest_fetch_thread is not None and self._manifest_fetch_thread.is_alive():
-      return tr("StarPilot is pulling the latest driving model list. This panel will populate automatically when the refresh completes.")
+      return tr("CompassPilot is pulling the latest driving model list. This panel will populate automatically when the refresh completes.")
     return tr("Try refreshing the catalog once the device is offroad and connected.")
 
   def utility_rows(self) -> list[dict]:
