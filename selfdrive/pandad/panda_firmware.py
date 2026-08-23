@@ -11,6 +11,7 @@ from openpilot.common.swaglog import cloudlog
 FW_PATH = os.path.join(BASEDIR, "panda", "board", "obj")
 
 TESLA_CAN_WAKE_PLATFORMS = {"TESLA_MODEL_3", "TESLA_MODEL_Y", "TESLA_MODEL_X"}
+RIVIAN_WAKE_FIRMWARE = "panda_h7_rivian.bin.signed"
 
 
 def supports_tesla_can_wake(params: Params) -> bool:
@@ -75,7 +76,15 @@ def get_selected_firmware_name(app_fn: str, remote_start: bool, hkg_remote_start
 
 
 def get_firmware_path(fw_path: str, app_fn: str, remote_start: bool, hkg_remote_start: bool, ignore_ignition_line: bool,
-                      tesla_wake: bool = False) -> str:
+                      tesla_wake: bool = False, rivian_wake: bool = False) -> str:
+  if rivian_wake:
+    selected_fn = RIVIAN_WAKE_FIRMWARE if app_fn == "panda_h7.bin.signed" else app_fn
+    selected_path = os.path.join(fw_path, selected_fn)
+    if selected_fn != app_fn and not os.path.isfile(selected_path):
+      cloudlog.warning(f"Selected panda firmware not found: {selected_path}, falling back to default")
+      return os.path.join(fw_path, app_fn)
+    return selected_path
+
   selected_fn = get_selected_firmware_name(app_fn, remote_start, hkg_remote_start, ignore_ignition_line, tesla_wake)
   selected_path = os.path.join(fw_path, selected_fn)
   if selected_fn != app_fn and not os.path.isfile(selected_path):

@@ -212,6 +212,10 @@ def flash_panda(params_memory):
   except Exception:
     hkg_remote_start = False
   try:
+    rivian_wake_enabled = params.get_bool("RivianWakeBootsComma")
+  except Exception:
+    rivian_wake_enabled = False
+  try:
     ignore_ignition_line = params.get_bool("IgnoreIgnitionLine")
   except Exception:
     ignore_ignition_line = False
@@ -235,7 +239,8 @@ def flash_panda(params_memory):
             continue
         print(f"Flashing Panda {serial}")
         app_fn = panda.get_mcu_type().config.app_fn
-        flash_fn = get_firmware_path(FW_PATH, app_fn, remote_start, hkg_remote_start, ignore_ignition_line, tesla_wake)
+        rivian_wake = rivian and rivian_wake_enabled and panda.is_internal() and panda.get_type() == Panda.HW_TYPE_CUATRO
+        flash_fn = get_firmware_path(FW_PATH, app_fn, remote_start, hkg_remote_start, ignore_ignition_line, tesla_wake, rivian_wake)
         panda.flash(fn=flash_fn)
     except Exception as exception:
       print(f"Failed to flash Panda {serial}: {exception}")

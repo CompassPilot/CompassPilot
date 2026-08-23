@@ -8,7 +8,7 @@ import { ScreenBrightnessControl } from "./ScreenBrightnessControl.js"
 import { FavoritesEditor } from "./FavoritesEditor.js"
 import { t } from "../i18n.js"
 
-const PANDA_FIRMWARE_TOGGLE_KEYS = new Set(["IgnoreIgnitionLine", "RemoteStartBootsComma", "HKGRemoteStartBootsComma", "TeslaWakeOnCAN"])
+const PANDA_FIRMWARE_TOGGLE_KEYS = new Set(["IgnoreIgnitionLine", "RemoteStartBootsComma", "HKGRemoteStartBootsComma", "TeslaWakeOnCAN", "RivianWakeBootsComma"])
 
 const FINE_SCRUB_HOLD_MS = 300
 const FINE_SCRUB_FACTOR = 5
