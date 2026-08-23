@@ -57,7 +57,7 @@ class TogglesLayout(Widget):
       ),
       "SafeMode": (
         lambda: tr("Safe Mode"),
-        tr("Temporarily force driving-affecting StarPilot settings back to safe defaults, stock tuning, and the branch default model until disabled."),
+        tr("Temporarily force driving-affecting CompassPilot settings back to safe defaults, stock tuning, and the branch default model until disabled."),
         "warning.png",
         True,
       ),

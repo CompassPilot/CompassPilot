@@ -23,6 +23,7 @@ DEVELOPER_METRIC_DISPLAY_KEYS = (
 DEVICE_SHUTDOWN_KEY = "DeviceShutdown"
 CAMERA_VIEW_KEY = "CameraView"
 GALAXY_NEW_DEFAULT_KEY = "GalaxyMobileDefault"
+HOME_SCREEN_NAME_KEY = "HomeScreenName"
 
 DEFAULT_STEER_KP = 0.6
 LEGACY_STEER_KP = 0.7
@@ -41,6 +42,7 @@ DEVICE_SHUTDOWN_HOURS_MIGRATION_MARKER = ".starpilot_device_shutdown_hours_v1"
 CAMERA_VIEW_DEFAULT_MIGRATION_MARKER = ".starpilot_camera_view_default_v1"
 REVERSE_CRUISE_RESTORE_MIGRATION_MARKER = ".starpilot_restore_reverse_cruise_v1"
 GALAXY_NEW_DEFAULT_MIGRATION_MARKER = ".starpilot_galaxy_new_default_v1"
+HOME_SCREEN_BRAND_MIGRATION_MARKER = ".compasspilot_home_screen_brand_v1"
 MARKER_DIRNAME = ".starpilot_param_migrations"
 
 LATERAL_METHOD_PARAM_SUFFIXES = (
@@ -64,6 +66,8 @@ LEGACY_CAMERA_VIEW_DEFAULT = 3
 STANDARD_ACCELERATION_PROFILE = 0
 DEFAULT_LANE_CHANGE_SMOOTHING = 5
 DEFAULT_CAMERA_VIEW = 2
+LEGACY_HOME_SCREEN_NAME = "StarPilot"
+DEFAULT_HOME_SCREEN_NAME = "CompassPilot"
 
 BRANCH_BOOL_MIGRATIONS = {
   "CEStoppedLead": (LEGACY_CE_STOPPED_LEAD_DEFAULT, False),
@@ -92,9 +96,11 @@ ACCELERATION_PROFILE_MIGRATION = {
 
 class ParamsLike(Protocol):
   def get_param_path(self, key: str = "") -> str: ...
+  def get(self, key: str) -> str | bytes | None: ...
   def get_bool(self, key: str) -> bool: ...
   def get_int(self, key: str) -> int: ...
   def get_float(self, key: str) -> float: ...
+  def put(self, key: str, value: str) -> None: ...
   def put_bool(self, key: str, value: bool) -> None: ...
   def put_int(self, key: str, value: int) -> None: ...
   def put_float(self, key: str, value: float) -> None: ...
@@ -154,6 +160,10 @@ def _reverse_cruise_restore_marker_path(params: ParamsLike) -> Path:
 
 def _galaxy_new_default_marker_path(params: ParamsLike) -> Path:
   return _marker_dir_path(params) / GALAXY_NEW_DEFAULT_MIGRATION_MARKER
+
+
+def _home_screen_brand_marker_path(params: ParamsLike) -> Path:
+  return _marker_dir_path(params) / HOME_SCREEN_BRAND_MIGRATION_MARKER
 
 
 def _marker_dir_path(params: ParamsLike) -> Path:
@@ -358,6 +368,22 @@ def _enable_galaxy_new_default(params: ParamsLike, marker: Path) -> None:
   marker.touch()
 
 
+def _apply_home_screen_brand_migration(params: ParamsLike, marker: Path) -> None:
+  if marker.exists():
+    return
+
+  marker.parent.mkdir(parents=True, exist_ok=True)
+
+  current_name = params.get(HOME_SCREEN_NAME_KEY)
+  if isinstance(current_name, bytes):
+    current_name = current_name.decode("utf-8", errors="ignore")
+
+  if current_name is None or current_name.strip().casefold() == LEGACY_HOME_SCREEN_NAME.casefold():
+    params.put(HOME_SCREEN_NAME_KEY, DEFAULT_HOME_SCREEN_NAME)
+
+  marker.touch()
+
+
 def apply_launch_param_migrations(params: ParamsLike, marker_path: Path | None = None,
                                   branch_defaults_marker_path: Path | None = None,
                                   acceleration_profile_marker_path: Path | None = None,
@@ -370,7 +396,8 @@ def apply_launch_param_migrations(params: ParamsLike, marker_path: Path | None =
                                   device_shutdown_hours_marker_path: Path | None = None,
                                   camera_view_default_marker_path: Path | None = None,
                                   reverse_cruise_restore_marker_path: Path | None = None,
-                                  galaxy_new_default_marker_path: Path | None = None) -> None:
+                                  galaxy_new_default_marker_path: Path | None = None,
+                                  home_screen_brand_marker_path: Path | None = None) -> None:
   _apply_legacy_launch_param_migrations(params, marker_path or _default_marker_path(params))
   # Keep branch-default rollout on its own marker so older installs that already
   # have the legacy marker still receive this one-time param reset.
@@ -407,6 +434,9 @@ def apply_launch_param_migrations(params: ParamsLike, marker_path: Path | None =
   )
   _enable_galaxy_new_default(
     params, galaxy_new_default_marker_path or _galaxy_new_default_marker_path(params)
+  )
+  _apply_home_screen_brand_migration(
+    params, home_screen_brand_marker_path or _home_screen_brand_marker_path(params)
   )
 
 
