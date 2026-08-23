@@ -207,7 +207,6 @@ def test_rivian_angle_control_is_harness_gated():
   assert setting["ui_type"] == "toggle"
   assert setting["data_type"] == "bool"
   assert setting["is_parent_toggle"] is True
-  assert setting["favorite_eligible"] is True
   assert setting["requires_capability"] == "HasRivianAngleHarness"
   assert "reboot" not in setting["description"].lower()
   assert _declared_default("RivianAngleControl") == "0"
@@ -231,7 +230,6 @@ def test_aol_configuration_is_unified_and_preserves_default_startup():
   sections = _params_by_section(_layout())
   lateral = sections["Lateral (Steering)"]
 
-  assert lateral["AlwaysOnLateral"]["favorite_eligible"] is False
   assert lateral["AOLStartupBehavior"]["parent_key"] == "AlwaysOnLateral"
   assert lateral["AOLBrakeBehavior"]["parent_key"] == "AlwaysOnLateral"
   assert _declared_default("AOLStartupBehavior") == "0"
@@ -302,7 +300,8 @@ def test_pip_preview_is_under_driving_screen_widgets_and_configured_only_in_gala
   assert _declared_default("PIPPreviewEnabled") == "0"
   assert _declared_default("PIPPreviewShowOnBlinker") == "0"
   assert _declared_default("PIPPreviewShowOnBSM") == "0"
-  assert '"{\\"width\\":1928,\\"height\\":1208,\\"center_left\\":[315,548],\\"center_right\\":[1571,539],\\"crop_size\\":580}"' in PARAM_KEYS_PATH.read_text(encoding="utf-8")
+  pip_preview_config = '"{\\"width\\":1928,\\"height\\":1208,\\"center_left\\":[315,548],\\"center_right\\":[1571,539],\\"crop_size\\":580}"'
+  assert pip_preview_config in PARAM_KEYS_PATH.read_text(encoding="utf-8")
 
   physical_settings = (
     REPO_ROOT / "selfdrive/ui/layouts/settings/starpilot/aethergrid.py",

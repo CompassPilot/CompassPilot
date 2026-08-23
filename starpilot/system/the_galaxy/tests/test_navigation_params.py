@@ -88,18 +88,20 @@ class WritableFakeParams:
     self.values.pop(key, None)
 
 
-def _params_client(monkeypatch, values, device_type):
+def _params_client(monkeypatch, values, device_type, allowed_types=None):
   fake_params = WritableFakeParams(values)
   monkeypatch.setattr(the_galaxy, "params", fake_params)
+  param_types = {
+    "AlphaLongitudinalEnabled": bool,
+    "ForceOffroad": bool,
+    **(allowed_types or {}),
+  }
   monkeypatch.setattr(
     the_galaxy,
     "_get_param_type_info",
     lambda: (
-      {"AlphaLongitudinalEnabled", "ForceOffroad"},
-      {
-        "AlphaLongitudinalEnabled": bool,
-        "ForceOffroad": bool,
-      },
+      set(param_types),
+      param_types,
     ),
   )
   monkeypatch.setattr(the_galaxy.HARDWARE, "get_device_type", lambda: device_type)

@@ -164,6 +164,10 @@ class CarControllerParams:
 class RivianSafetyFlags(IntFlag):
   LONG_CONTROL = 1
   ANGLE_CONTROL = 2
+  AOL_LATERAL = 4
+  AOL_BRAKE_REMAINS_ACTIVE = 8
+  AOL_STALK_TOGGLE = 16
+  AOL_START_ENABLED = 32
 
 
 class RivianFlags(IntFlag):

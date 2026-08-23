@@ -12,6 +12,7 @@ import opendbc.safety.tests.common as common
 from opendbc.safety.tests.common import CANPackerSafety
 from opendbc.car.rivian.values import RivianSafetyFlags
 from opendbc.car.rivian.riviancan import checksum as _checksum
+from opendbc.safety import ALTERNATIVE_EXPERIENCE
 
 
 def get_safety_vm():

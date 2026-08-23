@@ -2793,7 +2793,6 @@
         "data_type": "bool",
         "ui_type": "toggle",
         "is_parent_toggle": true,
-        "favorite_eligible": true,
         "requires_capability": "HasRivianAngleHarness",
         "settings_tier": "simple"
       },
@@ -3484,6 +3483,65 @@
             "value": 14,
             "label": "Pulse and Glide",
             "developer_only": true
+          }
+        ],
+        "settings_tier": "simple"
+      },
+      {
+        "key": "RivianHalfUpStalkControl",
+        "label": "Drive Stalk (Half-Up)",
+        "description": "Action performed by Rivian's slight-up drive-stalk position while ACC is off. Full-up always turns off Always On Lateral.",
+        "data_type": "int",
+        "ui_type": "dropdown",
+        "requires_capability": "IsRivian",
+        "options": [
+          {
+            "value": 0,
+            "label": "No Action"
+          },
+          {
+            "value": 2,
+            "label": "Force Coast"
+          },
+          {
+            "value": 3,
+            "label": "Pause Steering"
+          },
+          {
+            "value": 4,
+            "label": "Pause Accel/Brake"
+          },
+          {
+            "value": 5,
+            "label": "Toggle Experimental"
+          },
+          {
+            "value": 6,
+            "label": "Toggle Traffic"
+          },
+          {
+            "value": 7,
+            "label": "Toggle Switchback"
+          },
+          {
+            "value": 8,
+            "label": "Create Bookmark"
+          },
+          {
+            "value": 9,
+            "label": "Toggle Always On Lateral"
+          },
+          {
+            "value": 11,
+            "label": "Favorite #1"
+          },
+          {
+            "value": 12,
+            "label": "Favorite #2"
+          },
+          {
+            "value": 13,
+            "label": "Favorite #3"
           }
         ],
         "settings_tier": "simple"
