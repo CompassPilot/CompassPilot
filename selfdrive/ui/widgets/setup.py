@@ -14,10 +14,10 @@ LOGO_WIDTH = 750
 LOGO_HEIGHT = 770
 
 
-class StarPilotLogoWidget(Widget):
+class CompassPilotLogoWidget(Widget):
   def __init__(self):
     super().__init__()
-    self._logo_texture = gui_app.texture("images/StarPilotLogo.png", LOGO_WIDTH, LOGO_HEIGHT)
+    self._logo_texture = gui_app.texture("images/CompassPilotLogo.png", LOGO_WIDTH, LOGO_HEIGHT)
 
   def _render(self, rect: rl.Rectangle):
     scale = min(1.0, rect.width / self._logo_texture.width, rect.height / self._logo_texture.height)
@@ -33,7 +33,7 @@ class SetupWidget(Widget):
     super().__init__()
     self._pairing_dialog: PairingDialog | None = None
     self._pair_device_btn = Button(lambda: tr("Pair device"), self._show_pairing, button_style=ButtonStyle.PRIMARY)
-    self._logo_widget = StarPilotLogoWidget()
+    self._logo_widget = CompassPilotLogoWidget()
 
   def _render(self, rect: rl.Rectangle):
     if not ui_state.prime_state.is_paired():
