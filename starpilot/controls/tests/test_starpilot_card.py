@@ -6,6 +6,7 @@ from opendbc.car.chrysler.values import CAR as CHRYSLER_CAR
 
 from openpilot.common.params import ParamKeyType
 from openpilot.starpilot.common.favorite_slots import (
+  FAVORITE_ACTION_AOL_COUNTER,
   FAVORITE_ACTION_ACCEL_COUNTER,
   FAVORITE_ACTION_DISTANCE_INCREASE,
   FAVORITE_ACTION_TRAFFIC_MODE_COUNTER,

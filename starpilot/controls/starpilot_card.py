@@ -16,7 +16,7 @@ from openpilot.starpilot.common.experimental_state import (
   sync_manual_cc_state,
   sync_manual_ce_state,
 )
-from openpilot.starpilot.common.favorite_slots import FAVORITE_ACTION_TRAFFIC_MODE_COUNTER, toggle_favorite_slot
+from openpilot.starpilot.common.favorite_slots import FAVORITE_ACTION_AOL_COUNTER, FAVORITE_ACTION_TRAFFIC_MODE_COUNTER, toggle_favorite_slot
 from openpilot.starpilot.common.starpilot_variables import (
   ERROR_LOGS_PATH,
   GearShifter,
@@ -63,6 +63,11 @@ class StarPilotCard:
     self.always_on_lateral_allowed = False
     self.controller_aol_override = None
     self.pacifica_aol_set_seen = False
+    self.aol_active_last = None
+    self.aol_driving_seen = False
+    self.aol_startup_initialized = False
+    self.aol_startup_pending = False
+    self.aol_toggle_counter = self.params_memory.get_int(FAVORITE_ACTION_AOL_COUNTER)
     hyundai_flags = getattr(self.CP, "flags", 0)
     self.kia_forte_non_scc = (
       getattr(self.CP, "carFingerprint", None) in (HYUNDAI_CAR.KIA_FORTE_2019_NON_SCC, HYUNDAI_CAR.KIA_FORTE_2021_NON_SCC) and
@@ -116,6 +121,7 @@ class StarPilotCard:
     self.switchback_mode_enabled = self.params_memory.get_bool("SwitchbackModeEnabled")
     self.traffic_mode_enabled = False
     self._favorite_traffic_mode_counter = self.params_memory.get_int(FAVORITE_ACTION_TRAFFIC_MODE_COUNTER)
+    self._rivian_acc_enabled = False
 
     self.gap_counter = 0
     self.cancel_counter = 0
@@ -137,6 +143,9 @@ class StarPilotCard:
     mode_available = getattr(starpilot_toggles, "experimental_mode_available",
                              bool(getattr(sm["carControl"], "longActive", False) or
                                   experimental_mode_available(self.CP)))
+    # Rivian keeps ACC enabled while accelerator override temporarily pauses longActive.
+    traffic_mode_allowed = self._rivian_acc_enabled if self.CP.brand == "rivian" else sm["carControl"].longActive
+
     if (experimental_active and mode_available and
         getattr(starpilot_toggles, f"experimental_mode_via_{key}")):
       self.handle_experimental_mode(sm, starpilot_toggles)
@@ -155,7 +164,7 @@ class StarPilotCard:
     elif getattr(starpilot_toggles, f"switchback_mode_via_{key}"):
       self.switchback_mode_enabled = not self.switchback_mode_enabled
       self.params_memory.put_bool("SwitchbackModeEnabled", self.switchback_mode_enabled)
-    elif sm["carControl"].longActive and getattr(starpilot_toggles, f"traffic_mode_via_{key}"):
+    elif traffic_mode_allowed and getattr(starpilot_toggles, f"traffic_mode_via_{key}"):
       self.traffic_mode_enabled = not self.traffic_mode_enabled
     else:
       for slot_index in range(3):
@@ -202,7 +211,7 @@ class StarPilotCard:
       return False
     if self.hyundai_aol_needs_engagement:
       self.hyundai_aol_ready = True
-    self.always_on_lateral_allowed = not self.always_on_lateral_allowed
+    self.toggle_aol_latch()
     if main_cruise_aol:
       self.controller_aol_override = self.always_on_lateral_allowed
     if tesla_disengage_on_brake and self.always_on_lateral_allowed:
@@ -238,7 +247,8 @@ class StarPilotCard:
     pending = counter - self._favorite_traffic_mode_counter
     self._favorite_traffic_mode_counter = counter
 
-    if pending > 0 and sm["carControl"].longActive and pending % 2:
+    traffic_mode_allowed = self._rivian_acc_enabled if self.CP.brand == "rivian" else sm["carControl"].longActive
+    if pending > 0 and traffic_mode_allowed and pending % 2:
       self.traffic_mode_enabled = not self.traffic_mode_enabled
 
   def handle_experimental_mode(self, sm, starpilot_toggles):
@@ -258,9 +268,16 @@ class StarPilotCard:
     else:
       self.params.put_bool_nonblocking("ExperimentalMode", not sm["selfdriveState"].experimentalMode)
 
+  def toggle_aol_latch(self):
+    # A pending Start Enabled request represents the logical on state even
+    # before the vehicle becomes drive-ready. Toggling it cancels that request.
+    self.always_on_lateral_allowed = not (self.always_on_lateral_allowed or self.aol_startup_pending)
+    self.aol_startup_pending = False
+
   def update(self, carState, starpilotCarState, sm, starpilot_toggles, *, preap_authorized=False, ev6_aol_authorized=False):
     self.ev6_aol_authorized = ev6_aol_authorized
     self.switchback_mode_enabled = self.params_memory.get_bool("SwitchbackModeEnabled")
+    self._rivian_acc_enabled = self.CP.brand == "rivian" and carState.cruiseState.enabled
     self._handle_favorite_traffic_mode_action(sm)
 
     pulse_glide_cancel_override = (
@@ -313,12 +330,32 @@ class StarPilotCard:
         if be_type in self.confirmation_button_suppressed:
           self.confirmation_button_suppressed.remove(be_type)
           suppressed_releases.add(be_type)
+    aol_configured = bool(
+      starpilot_toggles.always_on_lateral or
+      starpilot_toggles.always_on_lateral_lkas or
+      starpilot_toggles.always_on_lateral_main
+    )
+    aol_startup_enabled = getattr(starpilot_toggles, "aol_startup_enabled", True)
+    rivian_aol = aol_configured and self.CP.brand == "rivian"
+    driving_gear = carState.gearShifter not in NON_DRIVING_GEARS
+    if not self.aol_startup_initialized:
+      self.aol_startup_initialized = True
+      self.aol_startup_pending = aol_configured and aol_startup_enabled
+
+    aol_toggle_counter = self.params_memory.get_int(FAVORITE_ACTION_AOL_COUNTER)
+    aol_favorite_toggled = (aol_toggle_counter - self.aol_toggle_counter) % 2 == 1
+    self.aol_toggle_counter = aol_toggle_counter
+
     button_aol_supported = self.always_on_lateral_supported and (
       self.CP.brand == "hyundai" or starpilot_toggles.lkas_allowed_for_aol
     )
     if getattr(self.CP, "carFingerprint", None) == HYUNDAI_CAR.HYUNDAI_SONATA_HYBRID:
       button_aol_supported = self.always_on_lateral_supported and bool(starpilot_toggles.lkas_allowed_for_aol)
-    button_managed_aol = starpilot_toggles.always_on_lateral_lkas or (button_aol_supported and starpilot_toggles.main_cruise_aol_toggle)
+    existing_button_managed_aol = (
+      starpilot_toggles.always_on_lateral_lkas or
+      (button_aol_supported and starpilot_toggles.main_cruise_aol_toggle)
+    )
+    button_managed_aol = rivian_aol or not aol_startup_enabled or existing_button_managed_aol
     g70_main_cruise_aol_managed = (
       getattr(self.CP, "carFingerprint", None) == HYUNDAI_CAR.GENESIS_G70_2020
       and starpilot_toggles.main_cruise_aol_toggle
@@ -337,6 +374,11 @@ class StarPilotCard:
       self.g70_main_cruise_aol_pending_frames = 0
 
     hyundai_aol_needs_engagement = self.hyundai_aol_needs_engagement and not starpilot_toggles.always_on_lateral_lkas
+    aol_button_toggled = False
+
+    if aol_favorite_toggled and aol_configured and self.always_on_lateral_set:
+      self.toggle_aol_latch()
+      aol_button_toggled = True
 
     if hyundai_aol_needs_engagement:
       if carState.gearShifter in NON_DRIVING_GEARS:
@@ -347,9 +389,10 @@ class StarPilotCard:
       elif sm["selfdriveState"].active or carState.cruiseState.enabled:
         self.hyundai_aol_ready = True
 
-    if button_aol_supported:
+    if button_aol_supported and not rivian_aol:
       for be, be_type in zip(carState.buttonEvents, button_event_types, strict=False):
         if be_type == ButtonType.lkas and be.pressed and starpilot_toggles.always_on_lateral_lkas:
+          aol_button_toggled = True
           if hyundai_aol_needs_engagement:
             self.hyundai_aol_ready = True
           self.always_on_lateral_allowed = not self.always_on_lateral_allowed
@@ -357,6 +400,7 @@ class StarPilotCard:
             self.pause_lateral = not self.always_on_lateral_allowed
         elif be_type == ButtonType.mainCruise and be.pressed:
           if starpilot_toggles.main_cruise_aol_toggle:
+            aol_button_toggled = True
             if hyundai_aol_needs_engagement:
               self.hyundai_aol_ready = True
             if g70_main_cruise_aol_managed:
@@ -391,11 +435,12 @@ class StarPilotCard:
     if forte_main_cruise_aol_managed:
       self.always_on_lateral_allowed = carState.cruiseState.available
 
+    car_fingerprint = getattr(self.CP, "carFingerprint", None)
+    pcm_cruise = getattr(self.CP, "pcmCruise", False)
+    pacifica_requires_set = pacifica_hybrid_aol_requires_set_press(car_fingerprint, pcm_cruise)
     main_cruise_aol = starpilot_toggles.always_on_lateral_main and not button_managed_aol
     if main_cruise_aol:
-      car_fingerprint = getattr(self.CP, "carFingerprint", None)
-      pcm_cruise = getattr(self.CP, "pcmCruise", False)
-      if pacifica_hybrid_aol_requires_set_press(car_fingerprint, pcm_cruise):
+      if pacifica_requires_set:
         # Chrysler Pacifica Hybrid stock ACC can fall back to plain cruise if AOL
         # starts steering before the driver presses SET.
         if not carState.cruiseState.available:
@@ -404,17 +449,26 @@ class StarPilotCard:
         elif carState.cruiseState.enabled and not self.prev_cruise_enabled:
           self.pacifica_aol_set_seen = True
           self.always_on_lateral_allowed = True
+          self.aol_startup_pending = False
         if self.controller_aol_override is not None:
           self.always_on_lateral_allowed = self.pacifica_aol_set_seen and self.controller_aol_override
-      else:
-        self.always_on_lateral_allowed = carState.cruiseState.available and self.controller_aol_override is not False
+      elif self.aol_startup_pending and driving_gear and carState.cruiseState.available:
+        self.always_on_lateral_allowed = True
+        self.aol_startup_pending = False
 
-    # On rising edge of engagement (SET press enabling lat+long), auto-enable AOL
-    # so that lateral persists when braking disengages longitudinal
+    # Rivian uses a dedicated drive-scoped AOL latch. Start Enabled arms it
+    # once when the vehicle first becomes drive-ready; Start Off waits for a
+    # normal engagement or the configured half-up stalk action.
+    if rivian_aol and self.aol_startup_pending and driving_gear and carState.cruiseState.available:
+      self.always_on_lateral_allowed = True
+      self.aol_startup_pending = False
+
+    # A normal lateral or cruise engagement enables AOL so lateral remains
+    # available after longitudinal control is cancelled.
     engagement_started = sm["selfdriveState"].active and not self.prev_active
-    if (engagement_started and self.always_on_lateral_set and
-        (starpilot_toggles.always_on_lateral_lkas or tesla_disengage_on_brake) and
-        (not main_cruise_aol or self.controller_aol_override is not False)):
+    aol_engaged = (carState.cruiseState.enabled and not self.prev_cruise_enabled) or engagement_started
+    if ((aol_configured or tesla_disengage_on_brake) and self.always_on_lateral_set and aol_engaged and
+        not aol_button_toggled and (not main_cruise_aol or self.controller_aol_override is not False)):
       if hyundai_aol_needs_engagement:
         self.hyundai_aol_ready = True
       self.tesla_aol_brake_disengaged = False
@@ -547,7 +601,10 @@ class StarPilotCard:
       self.cancel_pulse_glide_suppressed = False
 
     if lkas_pressed and not self.tesla_screen_button:
-      if self.CP.brand != "ford" or carState.cruiseState.available:
+      if self.CP.brand == "rivian":
+        if not getattr(starpilot_toggles, "rivian_half_up_stalk_aol_toggle", False):
+          self.handle_button_event("rivian_half_up", sm, starpilot_toggles)
+      elif self.CP.brand != "ford" or carState.cruiseState.available:
         if self.CP.brand == "ford" and getattr(starpilot_toggles, "ford_lkas_aol_toggle", False):
           self.pause_lateral = not self.pause_lateral
         else:
@@ -602,6 +659,11 @@ class StarPilotCard:
     if not getattr(starpilot_toggles, "pulse_and_glide_available", False):
       self.pulse_and_glide = False
     self.force_coast &= not (carState.brakePressed or carState.gasPressed)
+
+    if self.always_on_lateral_allowed != self.aol_active_last:
+      put_bool = getattr(self.params_memory, "put_bool_nonblocking", None) or self.params_memory.put_bool
+      put_bool("AOLActive", self.always_on_lateral_allowed)
+      self.aol_active_last = self.always_on_lateral_allowed
 
     starpilotCarState.accelPressed = self.accel_pressed
     starpilotCarState.alwaysOnLateralAllowed = self.always_on_lateral_allowed
