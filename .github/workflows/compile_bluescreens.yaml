@@ -157,6 +157,7 @@ jobs:
             TARGETS+=(
               "panda/board/obj/panda.bin.signed"
               "panda/board/obj/panda_h7.bin.signed"
+              "panda/board/obj/panda_h7_rivian.bin.signed"
               "panda/board/obj/panda_remote.bin.signed"
               "panda/board/obj/panda_h7_remote.bin.signed"
               "panda/board/obj/panda_can_ignition_only.bin.signed"
@@ -194,12 +195,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ -z "$(git status --porcelain --untracked-files=no)" ]]; then
+          git add -u
+          RIVIAN_PANDA_OUTPUTS=(
+            "panda/board/obj/bootstub.panda_h7_rivian.bin"
+            "panda/board/obj/panda_h7_rivian.bin.signed"
+            "panda/board/obj/panda_h7_rivian/bootstub.elf"
+            "panda/board/obj/panda_h7_rivian/main.bin"
+            "panda/board/obj/panda_h7_rivian/main.elf"
+          )
+          for output in "${RIVIAN_PANDA_OUTPUTS[@]}"; do
+            if [[ -e "${output}" ]]; then
+              git add -- "${output}"
+            fi
+          done
+
+          if git diff --cached --quiet; then
             echo "No build output changes detected."
             exit 0
           fi
 
-          git add -u
           git commit -m "build"
 
       - name: Push build commit

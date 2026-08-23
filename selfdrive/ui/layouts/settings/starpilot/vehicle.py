@@ -334,6 +334,15 @@ class VehicleSettingsManagerView(PanelManagerView):
       "set_state": lambda s: self._controller._on_toggle("DisableOpenpilotLongitudinal"),
     })
 
+    if cs.isRivian:
+      toggles.append({
+        "title": tr("Rivian Vehicle Activity Wake"),
+        "subtitle": tr("Wake a fully powered-down comma 4 when the Rivian produces CAN or SBU activity."),
+        "get_state": lambda: self._controller._params.get_bool("RivianWakeBootsComma"),
+        "set_state": lambda s: self._controller._on_panda_firmware_toggle(
+          "RivianWakeBootsComma", tr("Rivian Vehicle Activity Wake requires a Panda firmware update.")),
+      })
+
     if cs.isGM and (cs.hasPedal or cs.canUsePedal):
       toggles.append({
         "title": tr("Pedal for Long"),

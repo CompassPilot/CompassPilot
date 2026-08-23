@@ -1520,6 +1520,7 @@ class StarPilotVariables:
       condition=toggle.rivian_angle_speed_control,
       conversion=speed_conversion,
     )
+    toggle.rivian_wake_boots_comma = self.get_value("RivianWakeBootsComma", condition=toggle.car_make == "rivian")
 
     toggle.tethering_config = self.get_value("TetheringEnabled", cast=float)
 

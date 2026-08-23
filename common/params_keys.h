@@ -559,6 +559,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"RivianAngleSpeedControl", {PERSISTENT, BOOL, "0", "0", 2, SETTINGS_SIMPLE}},
     {"RivianHalfUpStalkControl", {PERSISTENT, INT, "0", "0", 0, SETTINGS_SIMPLE}},
     {"RivianToiRecoveryFailed", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL, "0", "0"}},
+    {"RivianWakeBootsComma", {PERSISTENT, BOOL, "0", "0", 0, SETTINGS_SIMPLE}},
     {"RecoveryPower", {PERSISTENT, FLOAT, "1.0", "1.0", 2}},
     {"RoadEdgesWidth", {PERSISTENT, FLOAT, "2.0", "2.0", 2, SETTINGS_SIMPLE}},
     {"RoadNameUI", {PERSISTENT, BOOL, "1", "0", 1, SETTINGS_SIMPLE}},

@@ -18,6 +18,7 @@ class StarPilotCarState:
     isFord: bool = False
     isHKG: bool = False
     isJeep: bool = False
+    isRivian: bool = False
     isToyota: bool = False
     isSubaru: bool = False
     isVolt: bool = False
@@ -95,6 +96,7 @@ class StarPilotState:
             self.car_state.isFord = brand == "ford"
             self.car_state.isHKG = brand == "hyundai"
             self.car_state.isJeep = brand == "chrysler" and fallback_model_str.startswith("JEEP_")
+            self.car_state.isRivian = brand == "rivian"
             self.car_state.isSubaru = brand == "subaru"
             self.car_state.isToyota = brand == "toyota"
             self.car_state.isHKGCanFd = False
@@ -170,6 +172,7 @@ class StarPilotState:
             self.car_state.isHKG = car_make == "hyundai"
             self.car_state.isHKGCanFd = self.car_state.isHKG and safety_model == car.CarParams.SafetyModel.hyundaiCanfd
             self.car_state.isJeep = car_make == "chrysler" and car_fingerprint.startswith("JEEP_")
+            self.car_state.isRivian = car_make == "rivian"
             self.car_state.isSubaru = car_make == "subaru"
             self.car_state.isToyota = car_make == "toyota"
             self.car_state.isTSK = bool(self._safe_get(CP, "secOcRequired", False))

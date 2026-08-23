@@ -10,6 +10,20 @@ flasher = importlib.util.module_from_spec(MODULE_SPEC)
 MODULE_SPEC.loader.exec_module(flasher)
 
 
+class FakeParams:
+  def __init__(self, values):
+    self.values = values
+
+  def get(self, key):
+    return self.values.get(key)
+
+
+def _car_params(brand: str) -> bytes:
+  CP = flasher.car.CarParams.new_message()
+  CP.brand = brand
+  return CP.to_bytes()
+
+
 def _external_black_panda(signature: bytes = b"current", bootstub: bool = False):
   panda = MagicMock()
   panda.is_internal.return_value = False
@@ -17,6 +31,21 @@ def _external_black_panda(signature: bytes = b"current", bootstub: bool = False)
   panda.get_signature.return_value = signature
   panda.bootstub = bootstub
   return panda
+
+
+def test_current_non_rivian_record_wins_over_stale_rivian_route():
+  params = FakeParams({
+    "CarParamsPersistent": _car_params("toyota"),
+    "CarParamsPrevRoute": _car_params("rivian"),
+  })
+  with patch.object(flasher, "Params", return_value=params):
+    assert not flasher.is_rivian_vehicle()
+
+
+def test_rivian_detection_falls_back_when_current_record_is_missing():
+  params = FakeParams({"CarParamsCache": _car_params("rivian")})
+  with patch.object(flasher, "Params", return_value=params):
+    assert flasher.is_rivian_vehicle()
 
 
 def test_current_rivian_bridge_uses_bridge_flash_path():

@@ -6,6 +6,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[4]
 LAYOUT_PATH = REPO_ROOT / "starpilot/common/assets/device_settings_layout.json"
 PARAM_KEYS_PATH = REPO_ROOT / "common/params_keys.h"
+DEVICE_SETTINGS_JS_PATH = REPO_ROOT / "starpilot/system/the_galaxy/assets/components/tools/device_settings.js"
+GALAXY_PATH = REPO_ROOT / "starpilot/system/the_galaxy/the_galaxy.py"
+VEHICLE_UI_PATH = REPO_ROOT / "selfdrive/ui/layouts/settings/starpilot/vehicle.py"
 
 
 def _layout():
@@ -224,6 +227,24 @@ def test_rivian_angle_control_is_harness_gated():
   assert minimum_speed["step"] == 1
   assert _declared_default("RivianAngleSpeedControl") == "0"
   assert _declared_default("RivianAngleMinimumSpeed") == "20.0"
+
+
+def test_rivian_vehicle_activity_wake_is_default_off_firmware_toggle():
+  vehicle = _params_by_section(_layout())["Vehicle"]
+  setting = vehicle["RivianWakeBootsComma"]
+  device_settings_source = DEVICE_SETTINGS_JS_PATH.read_text(encoding="utf-8")
+  galaxy_source = GALAXY_PATH.read_text(encoding="utf-8")
+  vehicle_ui_source = VEHICLE_UI_PATH.read_text(encoding="utf-8")
+
+  assert setting["ui_type"] == "toggle"
+  assert setting["data_type"] == "bool"
+  assert "panda flash" in setting["description"].lower()
+  assert _declared_default("RivianWakeBootsComma") == "0"
+  assert 'RivianWakeBootsComma: ["Rivian"]' in device_settings_source
+  assert re.search(r"PANDA_FIRMWARE_TOGGLE_KEYS[^\n]+RivianWakeBootsComma", device_settings_source)
+  assert re.search(r"PANDA_FIRMWARE_TOGGLE_KEYS[^\n]+RivianWakeBootsComma", galaxy_source)
+  assert "if cs.isRivian:" in vehicle_ui_source
+  assert re.search(r'_on_panda_firmware_toggle\(\s*"RivianWakeBootsComma"', vehicle_ui_source)
 
 
 def test_aol_configuration_is_unified_and_preserves_default_startup():

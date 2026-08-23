@@ -396,6 +396,13 @@ int main(void) {
         }
       #endif
     } else {
+      #if defined(PANDA_RIVIAN_WAKE) && defined(STM32H7)
+      if ((hw_type == HW_TYPE_CUATRO) && !current_board->read_som_gpio()) {
+        assert_fatal(current_safety_mode == SAFETY_SILENT, "Error: Entering low power mode while not in SAFETY_SILENT. Hanging\n");
+        enter_stop_mode();
+        assert_fatal(false, "Error: enter_stop_mode returned after system reset. Hanging\n");
+      }
+      #endif
       __WFI();
       SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
     }

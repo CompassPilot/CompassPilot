@@ -2821,6 +2821,15 @@
         "settings_tier": "simple"
       },
       {
+        "key": "RivianWakeBootsComma",
+        "label": "Rivian Vehicle Activity Wake",
+        "description": "Use Rivian comma 4 Panda firmware that wakes a fully powered-down comma when the vehicle produces CAN or SBU activity.\n\nRequires a Panda flash.",
+        "picker_description": "Wakes a powered-down comma 4 from Rivian vehicle activity; requires a Panda flash.",
+        "data_type": "bool",
+        "ui_type": "toggle",
+        "settings_tier": "simple"
+      },
+      {
         "key": "ForceFingerprint",
         "label": "Disable Automatic Fingerprint Detection",
         "description": "Force the selected fingerprint and prevent it from changing automatically.",

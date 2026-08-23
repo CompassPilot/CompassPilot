@@ -16,16 +16,17 @@ SECTOR_SIZES = [0x4000] * 4 + [0x10000] + [0x20000] * 11
 def _is_rivian() -> bool:
   params = Params()
 
+  # The first valid record is the freshest one. A current non-Rivian record
+  # must not be overridden by a stale Rivian CarParamsPrevRoute value.
   for key in ("CarParamsPersistent", "CarParamsCache", "CarParamsPrevRoute"):
     cp_bytes = params.get(key)
     if cp_bytes is None:
       continue
     try:
       with car.CarParams.from_bytes(cp_bytes) as CP:
-        if CP.brand == "rivian":
-          return True
+        return CP.brand == "rivian"
     except Exception:
-      cloudlog.exception(f"Unable to read {key} while identifying Rivian bridge")
+      cloudlog.exception(f"Unable to read {key} while identifying Rivian vehicle")
 
   return False
 

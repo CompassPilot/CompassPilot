@@ -173,7 +173,10 @@ def extract_zip(zip_file, extract_path):
   print(f"Extraction completed!")
 
 
-def get_selected_panda_firmware_name(app_fn, remote_start, hkg_remote_start, ignore_ignition_line):
+def get_selected_panda_firmware_name(app_fn, remote_start, hkg_remote_start, ignore_ignition_line, rivian_wake=False):
+  if rivian_wake:
+    return "panda_h7_rivian.bin.signed" if app_fn == "panda_h7.bin.signed" else app_fn
+
   if not remote_start and not hkg_remote_start and not ignore_ignition_line:
     return app_fn
 
@@ -201,6 +204,10 @@ def flash_panda(params_memory):
   except Exception:
     hkg_remote_start = False
   try:
+    rivian_wake_enabled = params.get_bool("RivianWakeBootsComma")
+  except Exception:
+    rivian_wake_enabled = False
+  try:
     ignore_ignition_line = params.get_bool("IgnoreIgnitionLine")
   except Exception:
     ignore_ignition_line = False
@@ -223,7 +230,8 @@ def flash_panda(params_memory):
         print(f"Flashing Panda {serial}")
         flash_fn = None
         app_fn = panda.get_mcu_type().config.app_fn
-        selected_fn = get_selected_panda_firmware_name(app_fn, remote_start, hkg_remote_start, ignore_ignition_line)
+        rivian_wake = rivian and rivian_wake_enabled and panda.is_internal() and panda.get_type() == Panda.HW_TYPE_CUATRO
+        selected_fn = get_selected_panda_firmware_name(app_fn, remote_start, hkg_remote_start, ignore_ignition_line, rivian_wake)
         if selected_fn != app_fn:
           candidate = os.path.join(FW_PATH, selected_fn)
           if os.path.isfile(candidate):
