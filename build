@@ -17,6 +17,7 @@ add_panda_targets() {
   local variants=(
     panda
     panda_h7
+    panda_h7_rivian
     panda_remote
     panda_h7_remote
     panda_hkg_remote
