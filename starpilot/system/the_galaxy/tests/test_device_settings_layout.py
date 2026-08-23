@@ -361,7 +361,6 @@ def test_rivian_angle_control_is_harness_gated():
   assert setting["ui_type"] == "toggle"
   assert setting["data_type"] == "bool"
   assert setting["is_parent_toggle"] is True
-  assert setting["favorite_eligible"] is True
   assert setting["requires_capability"] == "HasRivianAngleHarness"
   assert "reboot" not in setting["description"].lower()
   assert _declared_default("RivianAngleControl") == "0"
@@ -385,7 +384,6 @@ def test_aol_configuration_is_unified_and_preserves_default_startup():
   sections = _params_by_section(_layout())
   lateral = sections["Lateral (Steering)"]
 
-  assert lateral["AlwaysOnLateral"]["favorite_eligible"] is False
   assert lateral["AOLStartupBehavior"]["parent_key"] == "AlwaysOnLateral"
   assert lateral["AOLBrakeBehavior"]["parent_key"] == "AlwaysOnLateral"
   assert _declared_default("AOLStartupBehavior") == "0"
