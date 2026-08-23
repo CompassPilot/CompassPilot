@@ -7,7 +7,7 @@ import {
 import { FavoritesEditor } from "./FavoritesEditor.js"
 import { t } from "../i18n.js"
 
-const PANDA_FIRMWARE_TOGGLE_KEYS = new Set(["IgnoreIgnitionLine", "RemoteStartBootsComma", "HKGRemoteStartBootsComma", "TeslaWakeOnCAN"])
+const PANDA_FIRMWARE_TOGGLE_KEYS = new Set(["IgnoreIgnitionLine", "RemoteStartBootsComma", "HKGRemoteStartBootsComma", "TeslaWakeOnCAN", "RivianWakeBootsComma"])
 
 export const GalaxyToggleCard = {
   name: "GalaxyToggleCard",

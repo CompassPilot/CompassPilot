@@ -236,9 +236,10 @@ def test_main_skips_stock_cpp_signature_check_only_for_selected_variant(monkeypa
   monkeypatch.setattr(pandad, "PandaDFU", SimpleNamespace(list=lambda: []))
   monkeypatch.setattr(pandad, "HARDWARE", SimpleNamespace(has_internal_panda=lambda: True))
   monkeypatch.setattr(pandad, "prepare_rivian_bridge", lambda serials: set())
+  monkeypatch.setattr(pandad, "is_rivian_vehicle", lambda: False)
   selections = []
 
-  def flash(serial, gm, hkg, ignore, tesla):
+  def flash(serial, gm, hkg, ignore, tesla, rivian=False, rivian_wake_enabled=False):
     selections.append((serial, gm, hkg, ignore, tesla))
     return device
 

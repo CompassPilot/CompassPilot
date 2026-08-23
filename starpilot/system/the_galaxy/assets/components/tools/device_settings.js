@@ -61,6 +61,7 @@ const VEHICLE_SETTING_MAKES = {
   RivianAngleControl: ["Rivian"],
   RivianAngleSpeedControl: ["Rivian"],
   RivianAngleMinimumSpeed: ["Rivian"],
+  RivianWakeBootsComma: ["Rivian"],
   TeslaCoopSteering: ["Tesla"],
   NAPRadarEnabled: ["Tesla"],
   NAPRadarBehindNosecone: ["Tesla"],
@@ -144,7 +145,7 @@ function personalityRoadStateKnown() {
   const offroad = parseRoadFlag(state.values.IsOffroad)
   return onroad !== null && offroad !== null && onroad !== offroad
 }
-const PANDA_FIRMWARE_TOGGLE_KEYS = new Set(["IgnoreIgnitionLine", "RemoteStartBootsComma", "HKGRemoteStartBootsComma"])
+const PANDA_FIRMWARE_TOGGLE_KEYS = new Set(["IgnoreIgnitionLine", "RemoteStartBootsComma", "HKGRemoteStartBootsComma", "RivianWakeBootsComma"])
 const FLM_ADVANCED_LATERAL_KEYS = new Set([
   "AdvancedLateralTune", "ForceAutoTune", "ForceAutoTuneOff", "UseAutoSteerDelay", "SteerDelay",
   "SteerFriction", "SteerKP", "SteerLatAccel", "SteerRatio",
