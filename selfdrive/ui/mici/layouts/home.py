@@ -11,12 +11,16 @@ from openpilot.system.ui.widgets.layouts import HBoxLayout
 from openpilot.system.ui.widgets.icon_widget import IconWidget
 from openpilot.system.ui.widgets.label import UnifiedLabel
 from openpilot.system.ui.lib.application import ASSETS_DIR, gui_app, FontWeight, MousePos
+from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.selfdrive.ui.lib.mode_banner import ModeBannerVariant, get_mode_banner_variant, mode_atom_color
 from openpilot.selfdrive.ui.lib.starpilot_version import DEFAULT_HOME_SCREEN_NAME, STARPILOT_DISPLAY_VERSION, home_screen_name
 from openpilot.selfdrive.ui.ui_state import ui_state
 
 HEAD_BUTTON_FONT_SIZE = 40
 HOME_PADDING = 8
+HOME_TITLE_MAX_WIDTH = 480
+HOME_TITLE_MAX_FONT_SIZE = 96
+HOME_TITLE_MIN_FONT_SIZE = 36
 
 NetworkType = log.DeviceState.NetworkType
 
@@ -29,6 +33,21 @@ NETWORK_TYPES = {
   NetworkType.cell5G: "5G",
   NetworkType.ethernet: "Ethernet",
 }
+
+
+def fitted_home_title_font_size(text: str, font_weight: FontWeight) -> int:
+  font = gui_app.font(font_weight)
+  preferred_width = measure_text_cached(font, text, HOME_TITLE_MAX_FONT_SIZE).x
+  if preferred_width <= HOME_TITLE_MAX_WIDTH:
+    return HOME_TITLE_MAX_FONT_SIZE
+
+  font_size = max(HOME_TITLE_MIN_FONT_SIZE,
+                  int(HOME_TITLE_MAX_FONT_SIZE * HOME_TITLE_MAX_WIDTH / preferred_width))
+
+  while font_size > HOME_TITLE_MIN_FONT_SIZE and measure_text_cached(font, text, font_size).x > HOME_TITLE_MAX_WIDTH:
+    font_size -= 1
+
+  return font_size
 
 
 class NetworkIcon(Widget):
@@ -174,7 +193,8 @@ class MiciHomeLayout(Widget):
       self._mic_icon,
     ], spacing=18)
 
-    self._openpilot_label = UnifiedLabel(self._home_screen_name, font_size=96, font_weight=FontWeight.BRAND, max_width=480, wrap_text=False)
+    self._openpilot_label = UnifiedLabel(self._home_screen_name, font_size=HOME_TITLE_MAX_FONT_SIZE,
+                                         font_weight=FontWeight.BRAND, max_width=HOME_TITLE_MAX_WIDTH, wrap_text=False)
     self._version_label = UnifiedLabel("", font_size=36, font_weight=FontWeight.ROMAN, max_width=480, wrap_text=False)
     self._large_version_label = UnifiedLabel("", font_size=64, text_color=rl.GRAY, font_weight=FontWeight.ROMAN, max_width=480, wrap_text=False)
     self._date_label = UnifiedLabel("", font_size=36, text_color=rl.GRAY, font_weight=FontWeight.ROMAN, max_width=480, wrap_text=False)
@@ -190,8 +210,10 @@ class MiciHomeLayout(Widget):
     self._experimental_mode = ui_state.params.get_bool("ExperimentalMode")
     self._mode_status_atom.refresh()
     self._home_screen_name = home_screen_name(ui_state.params)
+    title_font_weight = FontWeight.BRAND if self._home_screen_name.isascii() else FontWeight.MEDIUM
     self._openpilot_label.set_text(self._home_screen_name)
-    self._openpilot_label.set_font_weight(FontWeight.BRAND if self._home_screen_name.isascii() else FontWeight.MEDIUM)
+    self._openpilot_label.set_font_weight(title_font_weight)
+    self._openpilot_label.set_font_size(fitted_home_title_font_size(self._home_screen_name, title_font_weight))
 
     def _clean_model_name(value: str) -> str:
       return re.sub(r"[🗺️👀📡]", "", value).replace("(Default)", "").strip()
