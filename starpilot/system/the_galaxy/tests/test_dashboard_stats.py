@@ -226,6 +226,14 @@ def _install_server_import_stubs():
     SETTINGS_CATALOG_PATH=MODULE_DIR.parents[1] / "common/assets/device_settings_layout.json",
     build_favorite_slot_options=lambda *args, **kwargs: [
       {
+        "key": "__starpilot_favorite_action__:aol_toggle",
+        "label": "Always On Lateral",
+        "description": "Turns the current drive's Always On Lateral state on or off without changing its master setting.",
+        "section": "Actions",
+        "action": "aolToggle",
+        "toggleAction": True,
+      },
+      {
         "key": "__starpilot_favorite_action__:distance_decrease",
         "label": "Distance - / SET",
         "description": "Acts like a short press of the car's SET/- cruise button.",
@@ -270,7 +278,7 @@ def _install_server_import_stubs():
   )
   for name, value in {
     "ACTIVE_THEME_PATH": Path("/tmp/dashboard-test-active-theme"),
-    "BUTTON_FUNCTIONS": {},
+    "BUTTON_FUNCTIONS": {"PULSE_AND_GLIDE": 14},
     "ERROR_LOGS_PATH": "/tmp/dashboard-test-errors",
     "EXCLUDED_KEYS": set(),
     "LEGACY_STARPILOT_PARAM_RENAMES": {},

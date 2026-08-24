@@ -257,13 +257,14 @@ def test_device_settings_layout_asset_is_served_from_common_catalog(monkeypatch)
     assert response.get_json() == the_galaxy.load_settings_catalog()
 
 
-def test_favorite_slot_options_include_virtual_cruise_actions(monkeypatch):
+def test_favorite_slot_options_include_live_aol_and_virtual_cruise_actions(monkeypatch):
   monkeypatch.setattr(the_galaxy, "_favorite_slot_options", None)
   monkeypatch.setattr(the_galaxy, "_get_param_type_info", lambda: (set(), {}))
 
   options = the_galaxy._get_favorite_slot_options()
   option_keys = {option["key"] for option in options}
 
+  assert "__starpilot_favorite_action__:aol_toggle" in option_keys
   assert "__starpilot_favorite_action__:distance_decrease" in option_keys
   assert "__starpilot_favorite_action__:distance_increase" in option_keys
 
@@ -271,10 +272,12 @@ def test_favorite_slot_options_include_virtual_cruise_actions(monkeypatch):
 def test_rivian_angle_favorite_requires_detected_extreme_harness(monkeypatch):
   options = [
     {"key": "RivianAngleControl", "requiresCapability": "HasRivianAngleHarness"},
+    {"key": "RivianHalfUpStalkControl", "requiresCapability": "IsRivian"},
     {"key": "NonGatedFavorite", "requiresCapability": ""},
   ]
   monkeypatch.setattr(the_galaxy, "_get_favorite_slot_options", lambda: options)
 
+  monkeypatch.setattr(the_galaxy, "_get_is_rivian", lambda: False)
   monkeypatch.setattr(the_galaxy, "_get_has_rivian_angle_harness", lambda: False)
   assert [option["key"] for option in the_galaxy._get_available_favorite_slot_options()] == ["NonGatedFavorite"]
 
@@ -283,6 +286,27 @@ def test_rivian_angle_favorite_requires_detected_extreme_harness(monkeypatch):
     "RivianAngleControl",
     "NonGatedFavorite",
   ]
+
+  monkeypatch.setattr(the_galaxy, "_get_is_rivian", lambda: True)
+  assert [option["key"] for option in the_galaxy._get_available_favorite_slot_options()] == [
+    "RivianAngleControl",
+    "RivianHalfUpStalkControl",
+    "NonGatedFavorite",
+  ]
+
+
+def test_params_all_exposes_rivian_capability(monkeypatch):
+  client, _ = _params_client(monkeypatch, {}, "mici")
+  monkeypatch.setattr(the_galaxy, "_get_has_radar", lambda: True)
+  monkeypatch.setattr(the_galaxy, "_get_vehicle_parked", lambda: True)
+  monkeypatch.setattr(the_galaxy, "_get_alpha_longitudinal_available", lambda: False)
+  monkeypatch.setattr(the_galaxy, "_get_has_rivian_angle_harness", lambda: False)
+  monkeypatch.setattr(the_galaxy, "_get_is_rivian", lambda: True)
+
+  response = client.get("/api/params/all")
+
+  assert response.status_code == 200
+  assert response.get_json()["IsRivian"] is True
 
 
 def test_rivian_angle_speed_controls_are_live_editable(monkeypatch):
@@ -311,6 +335,28 @@ def test_favorite_action_endpoint_increments_virtual_button_counter(monkeypatch)
 
   assert response.status_code == 200
   assert fake_memory.get_int("FavoriteVirtualAccelCruiseCounter") == 1
+
+
+def test_aol_favorite_action_toggles_drive_scoped_counter(monkeypatch):
+  client, _ = _params_client(monkeypatch, {}, "tici")
+  fake_memory = WritableFakeParams()
+  monkeypatch.setattr(the_galaxy, "params_memory", fake_memory)
+
+  response = client.post("/api/favorites/action", json={"key": "__starpilot_favorite_action__:aol_toggle"})
+
+  assert response.status_code == 200
+  assert fake_memory.get_int("FavoriteAOLToggleCounter") == 1
+
+
+def test_aol_favorite_value_reports_live_drive_state(monkeypatch):
+  fake_memory = WritableFakeParams({"AOLActive": True})
+  monkeypatch.setattr(the_galaxy, "params_memory", fake_memory)
+
+  values = the_galaxy._configured_favorite_slot_values([
+    {"key": "__starpilot_favorite_action__:aol_toggle"},
+  ])
+
+  assert values == {"__starpilot_favorite_action__:aol_toggle": True}
 
 
 def test_alpha_longitudinal_toggle_writes_and_requests_offroad_cycle(monkeypatch):
@@ -424,3 +470,63 @@ def test_curve_speed_controller_reset_rejected_onroad(monkeypatch):
   assert response.get_json()["error"] == "Curve Speed Controller data can only be reset while parked."
   assert fake_params.writes == []
   assert fake_params.removals == []
+
+
+def test_aol_configuration_rejects_onroad_changes(monkeypatch):
+  allowed_types = {
+    "AlwaysOnLateral": bool,
+    "AOLBrakeBehavior": int,
+    "AOLStartupBehavior": int,
+    "RivianHalfUpStalkControl": int,
+  }
+
+  for key, value in (
+    ("AlwaysOnLateral", True),
+    ("AOLBrakeBehavior", 1),
+    ("AOLStartupBehavior", 1),
+    ("RivianHalfUpStalkControl", 9),
+  ):
+    client, fake_params = _params_client(monkeypatch, {"IsOnroad": True}, "mici", allowed_types)
+    response = client.put("/api/params", json={"key": key, "value": value})
+    assert response.status_code == 403
+    assert fake_params.writes == []
+
+
+def test_aol_behaviors_accept_only_explicit_choices(monkeypatch):
+  allowed_types = {"AOLBrakeBehavior": int, "AOLStartupBehavior": int}
+
+  for key in allowed_types:
+    client, fake_params = _params_client(monkeypatch, {"IsOnroad": False, key: 0}, "mici", allowed_types)
+    response = client.put("/api/params", json={"key": key, "value": 1})
+    assert response.status_code == 200
+    assert response.get_json()["updated"] == {key: 1}
+    assert fake_params.values[key] == 1
+
+    response = client.put("/api/params", json={"key": key, "value": 2})
+    assert response.status_code == 400
+    assert fake_params.values[key] == 1
+
+
+def test_rivian_half_up_stalk_control_validates_button_actions(monkeypatch):
+  allowed_types = {"RivianHalfUpStalkControl": int}
+  client, fake_params = _params_client(
+    monkeypatch, {"IsOnroad": False, "RivianHalfUpStalkControl": 0}, "mici", allowed_types,
+  )
+
+  response = client.put("/api/params", json={"key": "RivianHalfUpStalkControl", "value": 9})
+  assert response.status_code == 200
+  assert fake_params.values["RivianHalfUpStalkControl"] == 9
+
+  response = client.put("/api/params", json={"key": "RivianHalfUpStalkControl", "value": 10})
+  assert response.status_code == 400
+  assert fake_params.values["RivianHalfUpStalkControl"] == 9
+
+  client, fake_params = _params_client(
+    monkeypatch,
+    {"IsOnroad": False, "GalaxyDeveloperMode": True, "RivianHalfUpStalkControl": 0},
+    "mici",
+    allowed_types,
+  )
+  response = client.put("/api/params", json={"key": "RivianHalfUpStalkControl", "value": 14})
+  assert response.status_code == 200
+  assert fake_params.values["RivianHalfUpStalkControl"] == 14

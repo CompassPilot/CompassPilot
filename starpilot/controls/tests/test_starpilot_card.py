@@ -76,12 +76,21 @@ def make_toggles(**overrides):
     "bookmark_via_cancel": False,
     "bookmark_via_cancel_long": False,
     "bookmark_via_cancel_very_long": False,
+    "bookmark_via_distance_long": False,
+    "bookmark_via_distance_very_long": False,
+    "bookmark_via_rivian_half_up": False,
     "experimental_mode_via_cancel": False,
     "experimental_mode_via_cancel_long": False,
     "experimental_mode_via_cancel_very_long": False,
+    "experimental_mode_via_distance_long": False,
+    "experimental_mode_via_distance_very_long": False,
+    "experimental_mode_via_rivian_half_up": False,
     "force_coast_via_cancel": False,
     "force_coast_via_cancel_long": False,
     "force_coast_via_cancel_very_long": False,
+    "force_coast_via_distance_long": False,
+    "force_coast_via_distance_very_long": False,
+    "force_coast_via_rivian_half_up": False,
     "bookmark_via_lkas": False,
     "conditional_experimental_mode": False,
     "experimental_mode_via_lkas": False,
@@ -90,15 +99,32 @@ def make_toggles(**overrides):
     "pulse_and_glide_via_cancel": False,
     "pulse_and_glide_via_cancel_long": False,
     "pulse_and_glide_via_cancel_very_long": False,
+    "pulse_and_glide_via_distance_long": False,
+    "pulse_and_glide_via_distance_very_long": False,
     "pulse_and_glide_via_lkas": False,
+    "pulse_and_glide_via_rivian_half_up": False,
     "lkas_allowed_for_aol": False,
     "main_cruise_aol_toggle": False,
     "main_cruise_slc_adopt": False,
     "pause_lateral_via_lkas": False,
+    "pause_lateral_via_distance_long": False,
+    "pause_lateral_via_distance_very_long": False,
+    "pause_lateral_via_rivian_half_up": False,
     "pause_longitudinal_via_lkas": False,
+    "pause_longitudinal_via_distance_long": False,
+    "pause_longitudinal_via_distance_very_long": False,
+    "pause_longitudinal_via_rivian_half_up": False,
+    "rivian_half_up_stalk_aol_toggle": False,
+    "safe_mode": False,
     "speed_limit_controller": False,
     "switchback_mode_via_lkas": False,
+    "switchback_mode_via_distance_long": False,
+    "switchback_mode_via_distance_very_long": False,
+    "switchback_mode_via_rivian_half_up": False,
+    "traffic_mode_via_distance_long": False,
+    "traffic_mode_via_distance_very_long": False,
     "traffic_mode_via_lkas": False,
+    "traffic_mode_via_rivian_half_up": False,
   }
   defaults.update(overrides)
   return SimpleNamespace(**defaults)
@@ -945,6 +971,66 @@ def test_lkas_button_press_creates_bookmark(monkeypatch, tmp_path):
   card.update(car_state, SimpleNamespace(distancePressed=False), make_sm(), make_toggles(bookmark_via_lkas=True))
 
   assert card.params_memory.get_int("WheelButtonBookmarkCounter") == 1
+
+
+def test_rivian_scroll_click_hold_uses_acc_state_during_longitudinal_override(monkeypatch, tmp_path):
+  monkeypatch.setattr(spc, "Params", FakeParams)
+  monkeypatch.setattr(spc, "is_FrogsGoMoo", lambda: False)
+  monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
+
+  card = spc.StarPilotCard(SimpleNamespace(brand="rivian"), SimpleNamespace(alternativeExperience=0))
+  sm = make_sm()
+  sm["carControl"].longActive = False
+  toggles = make_toggles(traffic_mode_via_distance_very_long=True)
+  starpilot_car_state = SimpleNamespace(distancePressed=True)
+  car_state = make_car_state(enabled=True)
+
+  for _ in range(card.very_long_press_threshold - 1):
+    card.update(car_state, starpilot_car_state, sm, toggles)
+  assert card.traffic_mode_enabled is False
+
+  ret = card.update(car_state, starpilot_car_state, sm, toggles)
+  assert card.traffic_mode_enabled is True
+  assert ret.distanceVeryLongPressed is True
+
+  # Keep holding past the threshold, as the on-road action does in practice,
+  # then verify releasing the click does not clear Traffic Mode.
+  card.update(car_state, starpilot_car_state, sm, toggles)
+  starpilot_car_state.distancePressed = False
+  ret = card.update(car_state, starpilot_car_state, sm, toggles)
+  assert ret.trafficModeEnabled is True
+
+
+def test_non_rivian_traffic_mode_still_requires_longitudinal_control(monkeypatch, tmp_path):
+  monkeypatch.setattr(spc, "Params", FakeParams)
+  monkeypatch.setattr(spc, "is_FrogsGoMoo", lambda: False)
+  monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
+
+  card = spc.StarPilotCard(SimpleNamespace(brand="gm"), SimpleNamespace(alternativeExperience=0))
+  sm = make_sm()
+  toggles = make_toggles(traffic_mode_via_lkas=True)
+
+  card.handle_button_event("lkas", sm, toggles)
+  assert card.traffic_mode_enabled is False
+
+  sm["carControl"].longActive = True
+  card.handle_button_event("lkas", sm, toggles)
+  assert card.traffic_mode_enabled is True
+
+
+def test_rivian_traffic_mode_requires_acc_engagement(monkeypatch, tmp_path):
+  monkeypatch.setattr(spc, "Params", FakeParams)
+  monkeypatch.setattr(spc, "is_FrogsGoMoo", lambda: False)
+  monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
+
+  card = spc.StarPilotCard(SimpleNamespace(brand="rivian"), SimpleNamespace(alternativeExperience=0))
+  sm = make_sm()
+  sm["carControl"].longActive = True
+  toggles = make_toggles(traffic_mode_via_lkas=True)
+
+  card.update(make_car_state(enabled=False), SimpleNamespace(distancePressed=False), sm, toggles)
+  card.handle_button_event("lkas", sm, toggles)
+  assert card.traffic_mode_enabled is False
 
 
 def test_favorite_wheel_action_toggles_hidden_onroad_slot(monkeypatch, tmp_path):

@@ -3,6 +3,8 @@ import json
 from openpilot.common.params import ParamKeyType
 from openpilot.starpilot.common.favorite_slots import (
   FAVORITE_ACTION_ACCEL_COUNTER,
+  FAVORITE_ACTION_AOL_COUNTER,
+  FAVORITE_ACTION_AOL_TOGGLE,
   FAVORITE_ACTION_DECEL_COUNTER,
   FAVORITE_ACTION_DISTANCE_DECREASE,
   FAVORITE_ACTION_DISTANCE_INCREASE,
@@ -190,6 +192,19 @@ def test_toggle_favorite_slot_action_increments_traffic_mode_counter():
   assert memory.get_int(FAVORITE_ACTION_TRAFFIC_MODE_COUNTER) == 1
 
 
+def test_legacy_aol_favorite_uses_drive_scoped_action():
+  params = FakeParams()
+  memory = FakeParams()
+  params.put(FAVORITE_SLOTS_PARAM, [
+    {"enabled": True, "show_onroad": True, "key": "AlwaysOnLateral", "label": "Always On Lateral"},
+  ])
+
+  slots = load_favorite_slots(params)
+  assert slots[0]["key"] == FAVORITE_ACTION_AOL_TOGGLE
+  assert toggle_favorite_slot(0, params, memory) is True
+  assert memory.get_int(FAVORITE_ACTION_AOL_COUNTER) == 1
+
+
 def test_shared_favorite_option_catalog_uses_layout_metadata_and_capability_gates(tmp_path):
   layout_path = tmp_path / "device_settings_layout.json"
   layout_path.write_text(json.dumps([
@@ -204,6 +219,7 @@ def test_shared_favorite_option_catalog_uses_layout_metadata_and_capability_gate
           "ui_type": "toggle",
           "data_type": "bool",
         },
+        {"key": "AlwaysOnLateral", "label": "Always On Lateral", "ui_type": "toggle", "data_type": "bool"},
         {"key": "UnsupportedToggle", "label": "Unsupported", "ui_type": "toggle", "data_type": "bool"},
         {"key": "AlphaLongitudinalEnabled", "label": "Alpha", "ui_type": "toggle", "data_type": "bool"},
         {"key": "RivianAngleControl", "label": "Rivian", "ui_type": "toggle", "data_type": "bool", "requires_capability": "HasRivianAngleHarness"},
@@ -212,7 +228,7 @@ def test_shared_favorite_option_catalog_uses_layout_metadata_and_capability_gate
   ]))
 
   options = build_favorite_slot_options(
-    lambda key: key in {"FeatureToggle", "AlphaLongitudinalEnabled", "RivianAngleControl"},
+    lambda key: key in {"FeatureToggle", "AlwaysOnLateral", "AlphaLongitudinalEnabled", "RivianAngleControl"},
     alpha_longitudinal_available=False,
     layout_path=layout_path,
   )
@@ -223,6 +239,8 @@ def test_shared_favorite_option_catalog_uses_layout_metadata_and_capability_gate
   assert feature_option["description"] == "Visible"
   assert feature_option["picker_description"] == "Compact"
   assert "UnsupportedToggle" not in {option["key"] for option in options}
+  assert "AlwaysOnLateral" not in {option["key"] for option in options}
+  assert FAVORITE_ACTION_AOL_TOGGLE in {option["key"] for option in options}
   assert "AlphaLongitudinalEnabled" not in {option["key"] for option in options}
   assert "RivianAngleControl" not in {
     option["key"] for option in filter_favorite_slot_options(options, {"HasRivianAngleHarness": False})

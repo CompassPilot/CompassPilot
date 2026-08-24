@@ -22,6 +22,7 @@ from opendbc.car.honda.values import CAR as HONDA, HONDA_BOSCH, HondaFlags, Hond
 from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.values import CAR as HYUNDAI, CANFD_CAR, HyundaiFlags, HyundaiStarPilotFlags, HyundaiStarPilotSafetyFlags, ALT_BUS_LDA_BUTTON_CARS
 from opendbc.car.mock.values import CAR as MOCK
+from opendbc.car.rivian.values import CAR as RIVIAN, RivianSafetyFlags
 from opendbc.car.subaru.values import CAR as SUBARU, SubaruSafetyFlags
 from opendbc.car.toyota.values import CAR as TOYOTA, NO_DSU_CAR, TSS2_CAR, UNSUPPORTED_DSU_CAR, ToyotaStarPilotFlags, ToyotaSafetyFlags
 from opendbc.car.values import PLATFORMS
@@ -264,6 +265,16 @@ class CarInterfaceBase(ABC):
         if candidate == HYUNDAI.HYUNDAI_SONATA_HYBRID and getattr(starpilot_toggles, "always_on_lateral_lkas", False) and \
             getattr(starpilot_toggles, "main_cruise_aol_toggle", False):
           fp_ret.safetyConfigs[-1].safetyParam |= HyundaiStarPilotSafetyFlags.AOL_MAIN_LKAS_SYNC.value
+
+      elif platform in RIVIAN:
+        if getattr(starpilot_toggles, "always_on_lateral", False):
+          fp_ret.safetyConfigs[-1].safetyParam |= RivianSafetyFlags.AOL_LATERAL.value
+          if getattr(starpilot_toggles, "aol_brake_behavior", 0) == 1:
+            fp_ret.safetyConfigs[-1].safetyParam |= RivianSafetyFlags.AOL_BRAKE_REMAINS_ACTIVE.value
+          if getattr(starpilot_toggles, "rivian_half_up_stalk_aol_toggle", False):
+            fp_ret.safetyConfigs[-1].safetyParam |= RivianSafetyFlags.AOL_STALK_TOGGLE.value
+          if getattr(starpilot_toggles, "aol_startup_enabled", True):
+            fp_ret.safetyConfigs[-1].safetyParam |= RivianSafetyFlags.AOL_START_ENABLED.value
 
       elif platform in TOYOTA:
         fp_ret.canUsePedal = not CP.autoResumeSng

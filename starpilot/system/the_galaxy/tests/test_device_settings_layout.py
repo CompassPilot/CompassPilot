@@ -202,6 +202,15 @@ def test_human_acceleration_param_is_removed():
   assert '{"HumanAcceleration",' not in params_source
 
 
+def test_slc_set_speed_sync_is_generic_and_default_off():
+  sections = _params_by_section(_layout())
+  setting = sections["Longitudinal (Speed & Following)"]["SLCSyncSetSpeed"]
+
+  assert setting["parent_key"] == "SpeedLimitController"
+  assert "vehicle_makes" not in setting
+  assert _declared_default("SLCSyncSetSpeed") == "0"
+
+
 def test_rivian_angle_control_is_harness_gated():
   sections = _params_by_section(_layout())
   vehicle = sections["Vehicle"]

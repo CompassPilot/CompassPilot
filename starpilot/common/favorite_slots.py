@@ -59,6 +59,9 @@ SETTINGS_CATALOG_PATH = Path(__file__).resolve().parent / "assets" / "device_set
 
 BLOCKED_ONROAD_KEYS = {
   "AlphaLongitudinalEnabled",
+  "AOLBrakeBehavior",
+  "AOLStartupBehavior",
+  "AlwaysOnLateral",
   "DrivingModel",
   "Model",
   "ModelVersion",
@@ -68,6 +71,7 @@ BLOCKED_ONROAD_KEYS = {
   "DisableOpenpilotLongitudinal",
   "SecOCKey",
   "SecOCKeys",
+  "RivianHalfUpStalkControl",
   "SteerRatio",
   "SteerDelay",
   "SteerKP",
@@ -152,6 +156,11 @@ def build_favorite_slot_options(is_eligible_param: Callable[[str], bool], *,
       continue
 
     if key == "AlphaLongitudinalEnabled" and not alpha_longitudinal_available:
+      continue
+
+    # Favorites control AOL's live, drive-scoped latch. Do not expose the
+    # persistent master alongside the dedicated virtual action.
+    if key == "AlwaysOnLateral":
       continue
 
     try:
