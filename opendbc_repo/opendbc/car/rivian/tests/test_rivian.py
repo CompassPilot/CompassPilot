@@ -98,6 +98,46 @@ class TestRivian:
 
     assert all(get_cruise_available(params.flags, feature_status) for feature_status in range(5))
 
+  def test_aol_configuration_is_mirrored_into_rivian_safety_flags(self):
+    params = self._car_params()
+    toggles = SimpleNamespace(
+      always_on_lateral=True,
+      aol_brake_behavior=1,
+      aol_startup_enabled=True,
+      rivian_half_up_stalk_aol_toggle=True,
+    )
+
+    starpilot_params = CarInterface.get_starpilot_params(
+      CAR.RIVIAN_R1_GEN1, {bus: {} for bus in range(8)}, [], params, toggles,
+    )
+    safety_param = starpilot_params.safetyConfigs[-1].safetyParam
+
+    assert safety_param & RivianSafetyFlags.AOL_LATERAL
+    assert safety_param & RivianSafetyFlags.AOL_BRAKE_REMAINS_ACTIVE
+    assert safety_param & RivianSafetyFlags.AOL_STALK_TOGGLE
+    assert safety_param & RivianSafetyFlags.AOL_START_ENABLED
+
+  def test_disabled_aol_does_not_set_rivian_aol_safety_flags(self):
+    params = self._car_params()
+    toggles = SimpleNamespace(
+      always_on_lateral=False,
+      aol_brake_behavior=1,
+      aol_startup_enabled=True,
+      rivian_half_up_stalk_aol_toggle=True,
+    )
+
+    starpilot_params = CarInterface.get_starpilot_params(
+      CAR.RIVIAN_R1_GEN1, {bus: {} for bus in range(8)}, [], params, toggles,
+    )
+    aol_flags = (
+      RivianSafetyFlags.AOL_LATERAL |
+      RivianSafetyFlags.AOL_BRAKE_REMAINS_ACTIVE |
+      RivianSafetyFlags.AOL_STALK_TOGGLE |
+      RivianSafetyFlags.AOL_START_ENABLED
+    )
+
+    assert not starpilot_params.safetyConfigs[-1].safetyParam & aol_flags
+
   def test_gas_pedal_zeroes_stale_longitudinal_acceleration(self):
     assert get_longitudinal_accel(0.07, gas_pressed=True) == 0.0
     assert get_longitudinal_accel(-2.44, gas_pressed=True) == 0.0
@@ -515,6 +555,31 @@ class TestRivian:
       self._longitudinal_parsers(scroll=1, scroll_click=2),
     )
     assert events == []
+
+  @staticmethod
+  def _stalk_parsers(request):
+    return {Bus.pt: SimpleNamespace(vl={"VDM_AdasSts": {"VDM_UserAdasRequest": request}})}
+
+  def test_aol_half_up_is_deferred_and_full_up_does_not_toggle(self):
+    state = RivianLongitudinalState(SimpleNamespace(flags=0, openpilotLongitudinalControl=False))
+    ret = SimpleNamespace(cruiseState=SimpleNamespace(enabled=False))
+
+    assert state.update_stalk_controls(ret, self._stalk_parsers(1), True) == []
+    events = state.update_stalk_controls(ret, self._stalk_parsers(0), True)
+    assert [(event.type, event.pressed) for event in events] == [(structs.CarState.ButtonEvent.Type.lkas, True)]
+
+    state = RivianLongitudinalState(SimpleNamespace(flags=0, openpilotLongitudinalControl=False))
+    assert state.update_stalk_controls(ret, self._stalk_parsers(1), True) == []
+    events = state.update_stalk_controls(ret, self._stalk_parsers(2), True)
+    assert [(event.type, event.pressed) for event in events] == [(structs.CarState.ButtonEvent.Type.altButton2, True)]
+
+  def test_aol_half_up_used_to_cancel_acc_is_suppressed(self):
+    state = RivianLongitudinalState(SimpleNamespace(flags=0, openpilotLongitudinalControl=False))
+    ret = SimpleNamespace(cruiseState=SimpleNamespace(enabled=True))
+
+    assert state.update_stalk_controls(ret, self._stalk_parsers(1), True) == []
+    ret.cruiseState.enabled = False
+    assert state.update_stalk_controls(ret, self._stalk_parsers(0), True) == []
 
   def test_angle_harness_ignores_toi_fault(self):
     permanent, temporary, disengage = get_steering_faults(True, True, False, 1, 0)
