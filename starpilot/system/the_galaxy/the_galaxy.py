@@ -121,6 +121,7 @@ from openpilot.starpilot.system.the_galaxy.longitudinal_mode import (
   set_mode as set_longitudinal_mode, snapshot as longitudinal_mode_snapshot,
 )
 from openpilot.starpilot.common.favorite_slots import (
+  FAVORITE_ACTION_AOL_TOGGLE,
   FAVORITE_SLOTS_PARAM,
   SETTINGS_CATALOG_PATH,
   build_favorite_slot_options,
@@ -210,6 +211,7 @@ PULSE_GLIDE_BUTTON_KEYS = {
   "VeryLongCancelButtonControl", "VeryLongDistanceButtonControl",
   "LKASButtonControl", "ModeButtonControl", "LongModeButtonControl", "VeryLongModeButtonControl",
   "StarButtonControl", "LongStarButtonControl", "VeryLongStarButtonControl",
+  "RivianHalfUpStalkControl",
 }
 SENTRY_NUMERIC_PARAM_BOUNDS = {
   "SentryModeSensitivity": (0.005, 1.0),
@@ -3429,7 +3431,10 @@ def _get_favorite_slot_options():
 def _get_available_favorite_slot_options():
   return filter_favorite_slot_options(
     _get_favorite_slot_options(),
-    {"HasRivianAngleHarness": _get_has_rivian_angle_harness()},
+    {
+      "HasRivianAngleHarness": _get_has_rivian_angle_harness(),
+      "IsRivian": _get_is_rivian(),
+    },
   )
 
 
@@ -3438,10 +3443,16 @@ def _get_available_controller_action_options():
 
 
 def _favorite_slot_values(options):
-  return get_favorite_values(options, params)
+  values = get_favorite_values(options, params)
+  if any(option.get("key") == FAVORITE_ACTION_AOL_TOGGLE for option in options):
+    values[FAVORITE_ACTION_AOL_TOGGLE] = params_memory.get_bool("AOLActive")
+  return values
 
 def _configured_favorite_slot_values(slots):
-  return get_favorite_values(slots, params)
+  values = get_favorite_values(slots, params)
+  if any(slot.get("key") == FAVORITE_ACTION_AOL_TOGGLE for slot in slots):
+    values[FAVORITE_ACTION_AOL_TOGGLE] = params_memory.get_bool("AOLActive")
+  return values
 
 _cached_allowed_keys = None
 _cached_param_types = None
@@ -4460,6 +4471,17 @@ def _get_has_rivian_angle_harness():
   except Exception:
     return False
 
+def _get_is_rivian():
+  cp_bytes = _safe_params_get_live_raw("CarParamsPersistent")
+  if not cp_bytes:
+    return False
+
+  try:
+    with car.CarParams.from_bytes(cp_bytes) as cp:
+      return cp.brand == "rivian"
+  except Exception:
+    return False
+
 def _get_hardware_snapshot_items():
   starpilot_toggles = _get_starpilot_toggles_snapshot()
 
@@ -4694,7 +4716,8 @@ def _reset_troubleshoot_section(section_id):
   default_values = _get_default_param_values()
   is_onroad = params.get_bool("IsOnroad")
   blocked_onroad_keys = {
-    "Model", "AlwaysOnLateral", "ForceTorqueController", "NNFF", "NNFFLite",
+    "Model", "AlwaysOnLateral", "AOLBrakeBehavior", "AOLStartupBehavior", "RivianHalfUpStalkControl",
+    "ForceTorqueController", "NNFF", "NNFFLite",
   }
   personality_writes_locked = _personality_settings_write_locked()
 
@@ -6385,12 +6408,18 @@ def setup(app):
         }), 200
 
       # 1. Prevent changing the model or reboot-required toggles while the car is actively driving
-      reboot_keys = {"Model", "DrivingModel", "AlwaysOnLateral", "DisableOpenpilotLongitudinal", "ForceTorqueController", "NNFF", "NNFFLite"}
+      reboot_keys = {
+        "Model", "DrivingModel", "AlwaysOnLateral", "AOLBrakeBehavior", "AOLStartupBehavior", "RivianHalfUpStalkControl",
+        "DisableOpenpilotLongitudinal", "ForceTorqueController", "NNFF", "NNFFLite",
+      }
       if key in reboot_keys and params.get_bool("IsOnroad"):
         friendly_names = {
           "Model": "Driving Model",
           "DrivingModel": "Driving Model",
           "AlwaysOnLateral": "Always On Lateral",
+          "AOLBrakeBehavior": "AOL Brake Behavior",
+          "AOLStartupBehavior": "AOL Startup Behavior",
+          "RivianHalfUpStalkControl": "Rivian Half-Up Stalk Control",
           "DisableOpenpilotLongitudinal": "Disable openpilot Longitudinal",
           "ForceTorqueController": "Force Torque Controller",
           "NNFF": "NNFF",
@@ -6431,6 +6460,39 @@ def setup(app):
 
       if key in PERSONALITY_PARKED_PARAM_KEYS and _personality_editor_write_locked():
         return jsonify({"error": "Driving state is unavailable or inconsistent. Refresh before editing personalities."}), 403
+
+      if key in {"AOLBrakeBehavior", "AOLStartupBehavior"}:
+        try:
+          behavior = int(str_val)
+        except (TypeError, ValueError):
+          return jsonify({"error": f"{key} must be 0 or 1."}), 400
+        if behavior not in (0, 1):
+          return jsonify({"error": f"{key} must be 0 or 1."}), 400
+
+        params.put_int(key, behavior)
+        update_starpilot_toggles()
+        return jsonify({
+          "message": f"{key} updated successfully. The change applies on the next drive.",
+          "updated": {key: behavior},
+        }), 200
+
+      if key == "RivianHalfUpStalkControl":
+        try:
+          stalk_control = int(str_val)
+        except (TypeError, ValueError):
+          return jsonify({"error": "Rivian half-up stalk control is invalid."}), 400
+
+        # Keep this in sync with the current settings catalogue. Action 14 is
+        # StarPilot's newer Pulse and Glide mapping.
+        if stalk_control not in {0, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14}:
+          return jsonify({"error": "Rivian half-up stalk control is invalid."}), 400
+
+        params.put_int(key, stalk_control)
+        update_starpilot_toggles()
+        return jsonify({
+          "message": "Rivian half-up stalk control updated. The change applies on the next drive.",
+          "updated": {key: stalk_control},
+        }), 200
 
       if key in {"LeadIndicator", "HideLeadMarker"}:
         enabled = str_val.strip() in ("1", "true", "True")
@@ -6780,6 +6842,7 @@ def setup(app):
     result["AlphaLongitudinalAvailable"] = _get_alpha_longitudinal_available()
     result["HasRivianAngleHarness"] = _get_has_rivian_angle_harness()
     result["IsTiciOrTizi"] = _get_is_tici_or_tizi()
+    result["IsRivian"] = _get_is_rivian()
 
     for key in ("CalibratedLateralAcceleration", "CalibrationProgress"):
       try:

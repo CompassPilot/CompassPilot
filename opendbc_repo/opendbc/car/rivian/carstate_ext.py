@@ -25,6 +25,45 @@ class RivianLongitudinalState:
     self.increase_counter = 0
     self.decrease_counter = 0
     self.stalk_down_counter = 0
+    self.vdm_user_adas_request = 0
+    self._lkas_pending = False
+    self._aol_prev_cruise_enabled = False
+
+  def update_stalk_controls(self, ret: structs.CarState, can_parsers, stalk_controls_enabled: bool) -> list:
+    """Map Rivian's two upward stalk detents to AOL button events.
+
+    UP_1 is deferred for one controls frame so the transition through UP_1 on
+    the way to UP_2 cannot briefly toggle lateral control.
+    """
+    cp = can_parsers[Bus.pt]
+    vdm_request = int(cp.vl["VDM_AdasSts"]["VDM_UserAdasRequest"])
+    button_events = []
+
+    if not stalk_controls_enabled:
+      self._lkas_pending = False
+      self.vdm_user_adas_request = vdm_request
+      self._aol_prev_cruise_enabled = ret.cruiseState.enabled
+      return button_events
+
+    if self._lkas_pending:
+      if vdm_request != 2:
+        button_events.append(structs.CarState.ButtonEvent(pressed=True, type=ButtonType.lkas))
+      self._lkas_pending = False
+
+    # Suppress UP_1 when ACC is active or was active on the previous controls
+    # frame. Rivian uses this gesture to cancel ACC, while AOL remains active.
+    acc_active_or_just_cancelled = ret.cruiseState.enabled or self._aol_prev_cruise_enabled
+    if vdm_request == 1 and self.vdm_user_adas_request not in (1, 2) and not acc_active_or_just_cancelled:
+      self._lkas_pending = True
+
+    if vdm_request == 2 and self.vdm_user_adas_request != 2:
+      button_events.append(structs.CarState.ButtonEvent(pressed=True, type=ButtonType.altButton2))
+    elif vdm_request != 2 and self.vdm_user_adas_request == 2:
+      button_events.append(structs.CarState.ButtonEvent(pressed=False, type=ButtonType.altButton2))
+
+    self.vdm_user_adas_request = vdm_request
+    self._aol_prev_cruise_enabled = ret.cruiseState.enabled
+    return button_events
 
   def set_cruise_speed(self, speed: float) -> float:
     if self.CP.openpilotLongitudinalControl:
@@ -95,10 +134,11 @@ class RivianLongitudinalState:
 
     return button_events
 
-  def update(self, ret: structs.CarState, can_parsers) -> None:
+  def update(self, ret: structs.CarState, can_parsers, stalk_controls_enabled: bool) -> None:
     button_events = []
 
     if self.CP.flags & RivianFlags.LONGITUDINAL_HARNESS:
       button_events.extend(self.update_longitudinal_upgrade(ret, can_parsers))
 
+    button_events.extend(self.update_stalk_controls(ret, can_parsers, stalk_controls_enabled))
     ret.buttonEvents = button_events
