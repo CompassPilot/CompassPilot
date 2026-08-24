@@ -125,7 +125,11 @@ class CarState(CarStateBase):
     if not self.vdm_adas_status:
       self.vdm_adas_status = [copy.copy(cp.vl["VDM_AdasSts"])]
 
-    self.longitudinal_state.update(ret, can_parsers)
+    stalk_controls_enabled = (
+      getattr(starpilot_toggles, "always_on_lateral", False) or
+      getattr(starpilot_toggles, "rivian_half_up_stalk_enabled", False)
+    )
+    self.longitudinal_state.update(ret, can_parsers, stalk_controls_enabled)
 
     fp_ret = custom.StarPilotCarState.new_message()
 
