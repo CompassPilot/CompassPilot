@@ -1,46 +1,29 @@
-name: Build Staging Prebuilt
+name: Build Rivian Prebuilt
 
-# Development is promoted to source branches before generated prebuilts are
-# published: stg-src to stg, stg-a-src to stg-a, and Rivian-src to Rivian.
+# Publish generated prebuilts from Rivian-src to Rivian.
 on:
   push:
     branches:
-      - stg-src
-      - stg-a-src
       - Rivian-src
 
 permissions:
   contents: write
 
 concurrency:
-  group: build-staging-prebuilt-${{ github.ref_name }}
+  group: build-rivian-prebuilt
   cancel-in-progress: false
 
 env:
   GIT_EMAIL: "100325903+TonyJOM@users.noreply.github.com"
   GIT_NAME: "CompassPilot Build Bot"
+  SOURCE_BRANCH: Rivian-src
+  OUTPUT_BRANCH: Rivian
 
 jobs:
   build_and_publish:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
     steps:
-      - name: Set source and output branches
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          case "${GITHUB_REF_NAME}" in
-            stg-src|stg-a-src|Rivian-src) ;;
-            *)
-              echo "Unsupported source branch: ${GITHUB_REF_NAME}" >&2
-              exit 1
-              ;;
-          esac
-
-          echo "SOURCE_BRANCH=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
-          echo "OUTPUT_BRANCH=${GITHUB_REF_NAME%-src}" >> "$GITHUB_ENV"
-
       - name: Checkout source commit
         uses: actions/checkout@v7
         with:
@@ -136,6 +119,7 @@ jobs:
         run: |
           set -euo pipefail
           ./build 4
+          ./build --panda 4
 
       - name: Validate build output
         shell: bash
@@ -143,6 +127,25 @@ jobs:
           set -euo pipefail
 
           test -f prebuilt
+
+          RIVIAN_PANDA_OUTPUTS=(
+            "panda/board/obj/bootstub.panda_h7_rivian.bin"
+            "panda/board/obj/panda_h7_rivian.bin.signed"
+            "panda/board/obj/panda_h7_rivian/bootstub.elf"
+            "panda/board/obj/panda_h7_rivian/main.bin"
+            "panda/board/obj/panda_h7_rivian/main.elf"
+          )
+          for output in "${RIVIAN_PANDA_OUTPUTS[@]}"; do
+            if [[ ! -s "${output}" ]]; then
+              echo "Required Rivian Panda firmware output is missing or empty: ${output}" >&2
+              exit 1
+            fi
+          done
+
+          if cmp -s panda/board/obj/panda_h7_rivian.bin.signed panda/board/obj/panda_h7.bin.signed; then
+            echo "Rivian Panda firmware unexpectedly matches the default H7 firmware." >&2
+            exit 1
+          fi
 
           if git grep -Il '^version https://git-lfs\.github\.com/spec/v1' > /tmp/lfs_ptrs.txt; then
             echo "LFS pointer stubs found in build output:" >&2
@@ -169,6 +172,19 @@ jobs:
 
           git add -u
           git add -- prebuilt
+
+          RIVIAN_PANDA_OUTPUTS=(
+            "panda/board/obj/bootstub.panda_h7_rivian.bin"
+            "panda/board/obj/panda_h7_rivian.bin.signed"
+            "panda/board/obj/panda_h7_rivian/bootstub.elf"
+            "panda/board/obj/panda_h7_rivian/main.bin"
+            "panda/board/obj/panda_h7_rivian/main.elf"
+          )
+          git add -- "${RIVIAN_PANDA_OUTPUTS[@]}"
+          for output in "${RIVIAN_PANDA_OUTPUTS[@]}"; do
+            git ls-files --error-unmatch "${output}" >/dev/null
+          done
+
           git ls-files --error-unmatch prebuilt >/dev/null
           git commit --allow-empty -m "build" \
             -m "source branch: ${SOURCE_BRANCH}" \
