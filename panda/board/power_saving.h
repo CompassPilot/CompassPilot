@@ -103,14 +103,20 @@ static void enter_stop_mode(void) {
   register_set_bits(&(EXTI->RTSR1), (1U << 1) | (1U << 4));
   register_set_bits(&(EXTI->FTSR1), (1U << 1) | (1U << 4));
 
-  // CAN wake inputs: FDCAN1 RX (PB8), FDCAN2 RX (PB5), FDCAN3 RX (PD12).
-  set_gpio_mode(GPIOB, 8, MODE_INPUT);
-  register_set(&(SYSCFG->EXTICR[2]), SYSCFG_EXTICR3_EXTI8_PB, 0xFU);
-  set_gpio_mode(GPIOB, 5, MODE_INPUT);
-  register_set(&(SYSCFG->EXTICR[1]), SYSCFG_EXTICR2_EXTI5_PB, 0xF0U);
-  set_gpio_mode(GPIOD, 12, MODE_INPUT);
-  register_set(&(SYSCFG->EXTICR[3]), SYSCFG_EXTICR4_EXTI12_PD, 0xFU);
-  const uint32_t can_exti_line = (1UL << 8) | (1UL << 5) | (1UL << 12);
+  // Wake only from the harness-selected main CAN path used for ignition
+  // detection. Rivian's secondary CAN path remains active while parked and
+  // would immediately wake the C4 again after a timed shutdown.
+  const bool main_can_flipped = harness.status == HARNESS_STATUS_FLIPPED;
+  const uint32_t can_exti_line = main_can_flipped ? (1UL << 12) : (1UL << 8);
+  if (main_can_flipped) {
+    // EXTI12: FDCAN3 RX (PD12)
+    set_gpio_mode(GPIOD, 12, MODE_INPUT);
+    register_set(&(SYSCFG->EXTICR[3]), SYSCFG_EXTICR4_EXTI12_PD, 0xFU);
+  } else {
+    // EXTI8: FDCAN1 RX (PB8)
+    set_gpio_mode(GPIOB, 8, MODE_INPUT);
+    register_set(&(SYSCFG->EXTICR[2]), SYSCFG_EXTICR3_EXTI8_PB, 0xFU);
+  }
   register_set_bits(&(EXTI->IMR1), can_exti_line);
   register_set_bits(&(EXTI->FTSR1), can_exti_line);
 
@@ -134,8 +140,11 @@ static void enter_stop_mode(void) {
   }
   NVIC_EnableIRQ(EXTI1_IRQn);
   NVIC_EnableIRQ(EXTI4_IRQn);
-  NVIC_EnableIRQ(EXTI9_5_IRQn);
-  NVIC_EnableIRQ(EXTI15_10_IRQn);
+  if (main_can_flipped) {
+    NVIC_EnableIRQ(EXTI15_10_IRQn);
+  } else {
+    NVIC_EnableIRQ(EXTI9_5_IRQn);
+  }
 
   __DSB();
   __ISB();
