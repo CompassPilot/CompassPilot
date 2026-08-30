@@ -74,8 +74,9 @@ def create_wheel_touch(packer, sccm_wheel_touch, enabled):
   values = {s: sccm_wheel_touch[s] for s in (
     "SCCM_WheelTouch_Counter",
     "SCCM_WheelTouch_HandsOn",
+    "SCCM_WheelTouch_Calibration",
     "SCCM_WheelTouch_CapacitiveValue",
-    "SETME_X52",
+    "SCCM_WheelTouch_ResistiveValue",
   )}
 
   # When only using ACC without lateral, the ACM warns the driver to hold the steering wheel on engagement
@@ -103,7 +104,7 @@ def create_longitudinal(packer, frame, accel, enabled):
   return packer.make_can_msg("ACM_longitudinalRequest", 0, values)
 
 
-def create_adas_status(packer, vdm_adas_status, interface_status):
+def create_adas_status(packer, vdm_adas_status, interface_status, driver_override=None):
   values = {s: vdm_adas_status[s] for s in (
     "VDM_AdasStatus_Checksum",
     "VDM_AdasStatus_Counter",
@@ -122,6 +123,9 @@ def create_adas_status(packer, vdm_adas_status, interface_status):
     if interface_status == 1:
       values["VDM_UserAdasRequest"] = 1
     values["VDM_AdasInterfaceStatus"] = interface_status
+
+  if driver_override is not None:
+    values["VDM_AdasDriverModeStatus"] = driver_override
 
   data = packer.make_can_msg("VDM_AdasSts", 2, values)[1]
   values["VDM_AdasStatus_Checksum"] = checksum(data[1:], 0x1D, 0xD1)

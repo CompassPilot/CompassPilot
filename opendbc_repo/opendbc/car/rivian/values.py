@@ -29,8 +29,6 @@ class ModelYear(StrEnum):
 @dataclass
 class RivianCarDocs(CarDocs):
   package: str = "All"
-  car_parts: CarParts = field(default_factory=CarParts.common([CarHarness.rivian]))
-  setup_video: str = "https://youtu.be/uaISd1j7Z4U"
 
 
 @dataclass
@@ -46,12 +44,13 @@ class CAR(Platforms):
   # Retain the historical platform identifier for stored fingerprints and
   # routes; RivianFlags.GEN2 distinguishes the vehicle generation at runtime.
   RIVIAN_R1_GEN1 = RivianPlatformConfig(
-    # TODO: verify this
     [
-      RivianCarDocs("Rivian R1S 2022-24"),
-      RivianCarDocs("Rivian R1S 2025", setup_video=None, car_parts=CarParts.common([CarHarness.rivian_b])),
-      RivianCarDocs("Rivian R1T 2022-24"),
-      RivianCarDocs("Rivian R1T 2025", setup_video=None, car_parts=CarParts.common([CarHarness.rivian_b])),
+      RivianCarDocs("Rivian R1S 2022-24", video="https://youtu.be/dflSSGQwYNc", setup_video="https://youtu.be/uaISd1j7Z4U",
+                    car_parts=CarParts.common([CarHarness.rivian])),
+      RivianCarDocs("Rivian R1S 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
+      RivianCarDocs("Rivian R1T 2022-24", video="https://youtu.be/dflSSGQwYNc", setup_video="https://youtu.be/uaISd1j7Z4U",
+                    car_parts=CarParts.common([CarHarness.rivian])),
+      RivianCarDocs("Rivian R1T 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
     ],
     CarSpecs(mass=3206., wheelbase=3.08, steerRatio=15.2),
     wmis={WMI.RIVIAN_TRUCK, WMI.RIVIAN_MPV},
@@ -77,6 +76,7 @@ def match_fw_to_car_fuzzy(live_fw_versions, vin, offline_fw_versions) -> set[str
 RIVIAN_VERSION_REQUEST = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER]) + \
   p16(0xf1a0)
 RIVIAN_VERSION_RESPONSE = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER + 0x40])
+RIVIAN_FW_VERSION_REGEX = br"R1TS_v\d+\.\d+\.\d+\(\d+\),\d+\.\d+\.\d+\x00"
 
 FW_QUERY_CONFIG = FwQueryConfig(
   requests=[
@@ -112,21 +112,14 @@ GEAR_MAP = {
   4: structs.CarState.GearShifter.drive,
 }
 
-AVERAGE_ROAD_ROLL = 0.06  # ~3.4 degrees, conservative banked-road allowance for angle safety
-MAX_ALLOWED_LATERAL_ACCEL = 4.0  # m/s^2; hard product requirement for Rivian angle control
+AVERAGE_ROAD_ROLL = 0.06  # ~3.4 degrees, 6% superelevation. higher actual roll lowers lateral acceleration
 
 
 class CarControllerParams:
-  # The R1T 2023 and R1S 2023 we tested on achieves slightly more lateral acceleration going left vs. right
-  # and lateral acceleration falls linearly as speed decreases from 38 mph to 20 mph. These values are set
-  # conservatively to reach a maximum of 3.0 m/s^2 turning left at 80 mph
-  # These refer to turning left:
-  # 250 is ~2.8 m/s^2 above 17 m/s, then linearly ramps to ~1.6 m/s^2 from 17 m/s to 9 m/s
+  # Four-point torque envelope: preserve low-speed authority, lift the
+  # mid-speed saturation band, and taper on the highway.
   # TODO: it is theorized older models have different steering racks and achieve down to half the
   #  lateral acceleration referenced here at all speeds. detect this and ship a torque increase for those models
-  # AdventurePilot's road-tested four-point tune preserves the original low-
-  # speed authority, lifts the 29-55 mph saturation band, and keeps the
-  # highway cap conservative.
   STEER_MAX = 385
   STEER_MAX_LOOKUP = [9, 13, 25, 27], [385, 350, 295, 275]
   STEER_STEP = 1
@@ -140,10 +133,7 @@ class CarControllerParams:
     500,
     ([], []),
     ([], []),
-    # Keep the vehicle-model command envelope below the product's absolute
-    # lateral-acceleration ceiling, including the road-roll allowance.
-    MAX_LATERAL_ACCEL=min(MAX_ALLOWED_LATERAL_ACCEL,
-                          ISO_LATERAL_ACCEL + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL)),
+    MAX_LATERAL_ACCEL=ISO_LATERAL_ACCEL + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL),
     MAX_LATERAL_JERK=3.0 + (ACCELERATION_DUE_TO_GRAVITY * AVERAGE_ROAD_ROLL),
     MAX_ANGLE_RATE=2.5,
   )

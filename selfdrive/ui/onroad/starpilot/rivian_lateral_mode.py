@@ -1,12 +1,12 @@
 import pyray as rl
 
-from cereal import car
+from opendbc.car import structs
 from openpilot.selfdrive.ui.ui_state import ui_state
 
 ANGLE_COLOR = rl.Color(0x3A, 0xDB, 0x6D, 255)
 TORQUE_COLOR = rl.Color(0x4D, 0x9D, 0xFF, 255)
 DRIVER_OVERRIDE_COLOR = rl.Color(255, 255, 255, 255)
-LateralControlMode = car.CarControl.Actuators.LateralControlMode
+LateralControlMode = structs.CarControl.Actuators.LateralControlMode
 
 
 class RivianLateralMode:

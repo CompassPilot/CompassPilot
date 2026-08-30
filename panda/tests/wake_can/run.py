@@ -15,6 +15,8 @@ HERE = Path(__file__).resolve().parent
 BASE = 'bb04e935272ccbc7551dd5f46d18197757a35587'
 FILES = ['panda/board/drivers/can_common.h', 'panda/board/main.c',
          'panda/board/drivers/bootkick.h', 'panda/board/boards/cuatro.h']
+IGNITION_CAN = 'panda/board/drivers/ignition_can.h'
+IGNITION_HOOK_START = 'void ignition_can_hook(CANPacket_t *msg) {'
 
 
 def between(text, start, end):
@@ -24,8 +26,23 @@ def between(text, start, end):
   return tail[:tail.index(end)]
 
 
+def _read_optional(read, path):
+  try:
+    return read(path)
+  except (FileNotFoundError, subprocess.CalledProcessError, AssertionError):
+    return ''
+
+
+def _ignition_hook(can, ignition):
+  if IGNITION_HOOK_START in can:
+    return between(can, IGNITION_HOOK_START, '\nbool can_tx_check_min_slots_free')
+  assert IGNITION_HOOK_START in ignition, IGNITION_HOOK_START
+  return ignition[ignition.index(IGNITION_HOOK_START):]
+
+
 def generate(read):
   can, main, boot, cuatro = [read(p) for p in FILES]
+  ignition = _read_optional(read, IGNITION_CAN)
   independent_wake = 'bool recent_heartbeat, bool wake)' in boot
   if not independent_wake:
     boot = boot.replace('#include "bootkick_declarations.h"', '')
@@ -36,7 +53,7 @@ def generate(read):
     globals_ = 'bool wake_on_can=false; uint32_t wake_on_can_cnt=0;\n' + globals_
   chunks = [
     ('can globals', globals_),
-    ('decoder', between(can, 'void ignition_can_hook(CANPacket_t *msg) {', '\nbool can_tx_check_min_slots_free')),
+    ('decoder', _ignition_hook(can, ignition)),
     ('ignition line', between(main, 'static bool panda_ignition_line(void) {', '\n\n// ********************* Serial')),
     ('car safety predicate', between(main, 'bool is_car_safety_mode(uint16_t mode) {', '\n// ***************************** main')),
     ('cuatro GPIO callback', between(cuatro, 'static void cuatro_set_bootkick(BootState state) {', '\nstatic void cuatro_set_amp_enabled')),
@@ -68,6 +85,8 @@ def main():
                          'panda/board/drivers/bootkick_declarations.h',
                          'panda/board/boards/board_declarations.h',
                          'opendbc_repo/opendbc/safety/can.h']
+  if (ROOT / IGNITION_CAN).is_file():
+    tested_files.append(IGNITION_CAN)
   tested_files += [str(p.relative_to(ROOT)) for p in sorted(HERE.iterdir()) if p.suffix in {'.py', '.h', '.md'}]
   manifest = {'base': args.base, 'source_sha256': {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in tested_files},
               'extracted_sha256': hashes, 'stock_extracted_sha256': stock_hashes, 'runs': []}

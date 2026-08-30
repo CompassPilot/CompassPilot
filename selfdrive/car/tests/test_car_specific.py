@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from cereal import car
+from cereal import log
 from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR
 
 from openpilot.selfdrive.car.car_specific import CarSpecificEvents
@@ -56,3 +57,16 @@ def test_kia_ray_ev_allows_stock_cruise_to_enable_controls():
 
     assert captured["pcm_enable"] is True
     assert captured["ignore_cruise_state"] is ignore_cruise_state
+
+
+def test_rivian_toi_recovery_failure_adds_temporary_steering_event():
+  specific = CarSpecificEvents(make_cp(brand="rivian"))
+  specific.rivian_status_frame = 4
+  specific.rivian_status_params = SimpleNamespace(get_bool=lambda key: key == "RivianToiRecoveryFailed")
+  events = SimpleNamespace(added=[], add=lambda event: events.added.append(event))
+  specific.create_common_events = lambda *args, **kwargs: events
+
+  result = specific.update(SimpleNamespace(), SimpleNamespace(), SimpleNamespace())
+
+  assert result is events
+  assert log.OnroadEvent.EventName.steerTempUnavailable in events.added

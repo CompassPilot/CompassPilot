@@ -221,7 +221,7 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
   const TorqueSteeringLimits RIVIAN_STEERING_LIMITS = {
     .max_torque = 385,
     .dynamic_max_torque = true,
-    // Conservative three-point envelope around the software's four-point
+    // Three-point envelope around the software four-point
     // [9,13,25,27] -> [385,350,295,275] tune. This curve is never below the
     // software lookup, so Panda permits every command the controller can emit.
     .max_torque_lookup = {
@@ -238,8 +238,9 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
     .max_invalid_request_frames = 2,
     .min_valid_request_rt_interval = 810000,
     .has_steer_req_tolerance = true,
-    // The EPAS needs a zero-command ToI release above 90 degrees. Hold Panda's
-    // limiter reference through that release so the prior torque may resume.
+    // Feedback-driven ToI releases may last longer than two frames, and rearm
+    // holds (req=1, torque=0) until EPAS acknowledges. Preserve the limiter
+    // reference across any zero-torque cut so assist can resume without a sawtooth.
     .preserve_torque_on_zero_request = true,
   };
 
@@ -257,9 +258,8 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
       int desired_angle = ((msg->data[2] << 7) | (msg->data[3] >> 1)) - 16384U;
       bool angle_active = GET_BIT(msg, 12U);
       const bool aol_rearmed = rivian_aol_host_rearm(angle_active);
-      const bool angle_violation = !rivian_angle_control || steer_angle_cmd_checks_vm(desired_angle, angle_active,
-                                                                                      RIVIAN_ANGLE_STEERING_LIMITS,
-                                                                                      RIVIAN_ANGLE_STEERING_PARAMS);
+      const bool angle_violation = !rivian_angle_control || steer_angle_cmd_checks_vm(
+        desired_angle, angle_active, RIVIAN_ANGLE_STEERING_LIMITS, RIVIAN_ANGLE_STEERING_PARAMS);
       if (angle_violation) {
         if (aol_rearmed) {
           lkas_on = false;
@@ -299,12 +299,13 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
 static safety_config rivian_init(uint16_t param) {
   // SCCM_WheelTouch: for hiding hold wheel alert
   // VDM_AdasSts: for canceling stock ACC
-  // 0x120 = ACM_lkaHbaCmd, 0x321 = SCCM_WheelTouch, 0x162 = VDM_AdasSts
+  // 0x100 = ACM_Status, 0x110 = ACM_SteeringControl, 0x120 = ACM_lkaHbaCmd,
+  // 0x321 = SCCM_WheelTouch, 0x162 = VDM_AdasSts
   static const CanMsg RIVIAN_TX_MSGS[] = {{0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
   static const CanMsg RIVIAN_ANGLE_TX_MSGS[] = {{0x100, 0, 8, .check_relay = true}, {0x110, 0, 8, .check_relay = true}, {0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
   // 0x160 = ACM_longitudinalRequest
-  static const CanMsg RIVIAN_LONG_TX_MSGS[] = {{0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x160, 0, 5, .check_relay = true}};
-  static const CanMsg RIVIAN_ANGLE_LONG_TX_MSGS[] = {{0x100, 0, 8, .check_relay = true}, {0x110, 0, 8, .check_relay = true}, {0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x160, 0, 5, .check_relay = true}};
+  static const CanMsg RIVIAN_LONG_TX_MSGS[] = {{0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x160, 0, 5, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
+  static const CanMsg RIVIAN_ANGLE_LONG_TX_MSGS[] = {{0x100, 0, 8, .check_relay = true}, {0x110, 0, 8, .check_relay = true}, {0x120, 0, 8, .check_relay = true}, {0x321, 2, 7, .check_relay = true}, {0x160, 0, 5, .check_relay = true}, {0x162, 2, 8, .check_relay = true}};
 
   static RxCheck rivian_rx_checks[] = {
     {.msg = {{0x208, 0, 8, 50U, .max_counter = 14U}, { 0 }, { 0 }}},                                                             // ESP_Status (speed)
