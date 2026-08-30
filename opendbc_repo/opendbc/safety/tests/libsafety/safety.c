@@ -12,6 +12,10 @@ uint32_t microsecond_timer_get(void) {
 #include "opendbc/safety/can.h"
 #include "opendbc/safety/safety.h"
 
+bool ignition_can = false;
+uint32_t ignition_can_cnt = 0U;
+#include "panda/board/drivers/ignition_can.h"
+
 void can_send(CANPacket_t *to_send, uint8_t bus_number, bool skip_tx_hook) {
   (void)to_send;
   (void)bus_number;
@@ -57,6 +61,10 @@ void set_relay_malfunction(bool c){
 
 bool get_controls_allowed(void){
   return controls_allowed;
+}
+
+bool get_ignition_can(void){
+  return ignition_can;
 }
 
 int get_alternative_experience(void){
@@ -240,4 +248,7 @@ void init_tests(void){
 
   // assumes autopark on safety mode init to avoid a fault. get rid of that for testing
   tesla_autopark = false;
+
+  ignition_can = false;
+  ignition_can_cnt = 0U;
 }

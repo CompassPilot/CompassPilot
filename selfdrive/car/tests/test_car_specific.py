@@ -1,5 +1,9 @@
-from cereal import car
+from types import SimpleNamespace
 
+from cereal import car
+from cereal import log
+
+from openpilot.selfdrive.car.car_specific import CarSpecificEvents
 from openpilot.selfdrive.car.cruise_state import should_cancel_stock_cruise, should_flag_cruise_mismatch
 
 
@@ -39,3 +43,16 @@ def test_pcm_cruise_behavior_is_unchanged():
   assert should_cancel_stock_cruise(cp, cruise_enabled=True, controls_enabled=False)
   assert not should_flag_cruise_mismatch(cp, cruise_enabled=True, controls_enabled=True, effective_pcm_cruise=True)
   assert should_flag_cruise_mismatch(cp, cruise_enabled=True, controls_enabled=False, effective_pcm_cruise=True)
+
+
+def test_rivian_toi_recovery_failure_adds_temporary_steering_event():
+  specific = CarSpecificEvents(make_cp(brand="rivian"))
+  specific.rivian_status_frame = 4
+  specific.rivian_status_params = SimpleNamespace(get_bool=lambda key: key == "RivianToiRecoveryFailed")
+  events = SimpleNamespace(added=[], add=lambda event: events.added.append(event))
+  specific.create_common_events = lambda *args, **kwargs: events
+
+  result = specific.update(SimpleNamespace(), SimpleNamespace(), SimpleNamespace())
+
+  assert result is events
+  assert log.OnroadEvent.EventName.steerTempUnavailable in events.added

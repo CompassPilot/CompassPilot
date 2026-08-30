@@ -6,14 +6,12 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from cereal import car
-
+from opendbc.car import structs
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "onroad" / "starpilot" / "rivian_lateral_mode.py"
 EXP_BUTTON_PATH = Path(__file__).resolve().parents[1] / "onroad" / "exp_button.py"
 
-
-LateralControlMode = car.CarControl.Actuators.LateralControlMode
+LateralControlMode = structs.CarControl.Actuators.LateralControlMode
 
 
 class FakeColor:

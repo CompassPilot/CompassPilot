@@ -281,9 +281,10 @@ def update_twitch_guard(remaining: float, v_ego: float, standstill: bool) -> flo
   return max(remaining - DT_CTRL, 0.0)
 
 
-def get_control_lateral_smooth_seconds(brand: str, v_ego: float, vehicle_smooth_seconds: float) -> float:
+def get_control_lateral_smooth_seconds(brand: str, v_ego: float, vehicle_smooth_seconds: float,
+                                       flags: int = 0) -> float:
   if brand == "rivian" or (brand == "subaru" and vehicle_smooth_seconds > 0.0):
-    return get_car_lateral_smooth_seconds(brand, v_ego, vehicle_smooth_seconds)
+    return get_car_lateral_smooth_seconds(brand, v_ego, vehicle_smooth_seconds, flags)
   return LAT_SMOOTH_SECONDS
 
 
@@ -292,6 +293,11 @@ def turn_lead_allowed(brand: str, lateral_control_mode: car.CarControl.Actuators
   # controller follows the resulting lead/catch-up cycle literally, which can
   # reverse the wheel command several times during one turn initiation.
   return brand != "rivian" or lateral_control_mode != LateralControlMode.angle
+
+
+def uses_angle_lateral_state(steer_control_type, angle_steering: bool) -> bool:
+  # Rivian Extreme keeps SteerControlType.torque while live angle mode is on.
+  return steer_control_type == car.CarParams.SteerControlType.angle or bool(angle_steering)
 
 
 # Turn-initiation lead. The model's action and the fixed 4/7 m probes are anchored in
@@ -418,6 +424,13 @@ class Controls:
       self.LaC = LatControlPID(self.CP, self.CI, DT_CTRL)
     elif self.CP.lateralTuning.which() == 'torque':
       self.LaC = LatControlTorque(self.CP, self.CI, DT_CTRL)
+
+    self.LaC_angle = None
+    self.angle_steering = False
+    if self.CP.brand == "rivian":
+      from opendbc.car.rivian.values import RivianFlags
+      if self.CP.flags & RivianFlags.ANGLE_HARNESS:
+        self.LaC_angle = LatControlAngle(self.CP, self.CI, DT_CTRL)
 
     self.sm = self.sm.extend(['liveDelay', 'starpilotCarState', 'starpilotPlan'])
 
@@ -758,21 +771,41 @@ class Controls:
 
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll,
                                                                jerk_factor)
-    lat_smooth_seconds = get_control_lateral_smooth_seconds(self.CP.brand, CS.vEgo, self.CP.lateralSmoothSeconds)
+    lat_smooth_seconds = get_control_lateral_smooth_seconds(self.CP.brand, CS.vEgo, self.CP.lateralSmoothSeconds,
+                                                           self.CP.flags)
     lat_delay = self.sm["liveDelay"].lateralDelay + lat_smooth_seconds
 
     actuators.curvature = self.desired_curvature
+    if self.LaC_angle is not None:
+      # Zero torque is a valid Extreme torque-mode command.
+      self.angle_steering = (
+        CC.latActive and
+        self.sm['carOutput'].actuatorsOutput.lateralControlMode == car.CarControl.Actuators.LateralControlMode.angle
+      )
     steer, lateral_output, lac_log = self.LaC.update(CC.latActive, CS, self.VM, lp,
-                                                     self.steer_limited_by_safety, self.desired_curvature,
+                                                     self.steer_limited_by_safety or self.angle_steering, self.desired_curvature,
                                                      curvature_limited, lat_delay,
                                                      self.calibrated_pose,
                                                      self.sm['modelV2'],
                                                      self.starpilot_toggles)
     actuators.torque = float(steer)
+    angle_output = None
+    if self.LaC_angle is not None:
+      _, angle_output, angle_log = self.LaC_angle.update(
+        CC.latActive, CS, self.VM, lp, self.steer_limited_by_safety,
+        self.desired_curvature, curvature_limited, lat_delay,
+        self.calibrated_pose, self.sm['modelV2'], self.starpilot_toggles,
+      )
+      if self.angle_steering:
+        lac_log = angle_log
+      else:
+        self.LaC_angle.reset()
     if self.CP.steerControlType == car.CarParams.SteerControlType.curvatureDEPRECATED:
       actuators.curvature = float(lateral_output)
     else:
       actuators.steeringAngleDeg = float(lateral_output)
+    if angle_output is not None:
+      actuators.steeringAngleDeg = float(angle_output)
 
     if len(long_plan.speeds):
       actuators.speed = long_plan.speeds[-1]
@@ -851,7 +884,7 @@ class Controls:
 
     if self.sm['selfdriveState'].active:
       CO = self.sm['carOutput']
-      if self.CP.steerControlType == car.CarParams.SteerControlType.angle:
+      if self.CP.steerControlType == car.CarParams.SteerControlType.angle or self.angle_steering:
         self.steer_limited_by_safety = abs(CC.actuators.steeringAngleDeg - CO.actuatorsOutput.steeringAngleDeg) > \
                                               STEER_ANGLE_SATURATION_THRESHOLD
       else:
@@ -877,7 +910,7 @@ class Controls:
                          (self.sm['selfdriveState'].state == State.softDisabling) or self.sm["starpilotCarState"].forceCoast)
 
     lat_tuning = self.CP.lateralTuning.which()
-    if self.CP.steerControlType == car.CarParams.SteerControlType.angle:
+    if uses_angle_lateral_state(self.CP.steerControlType, self.angle_steering):
       cs.lateralControlState.angleState = lac_log
     elif self.CP.steerControlType == car.CarParams.SteerControlType.curvatureDEPRECATED:
       cs.lateralControlState.curvatureStateDEPRECATED = lac_log

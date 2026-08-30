@@ -82,6 +82,7 @@ EXTERNAL_GPU_EGMP_READY_MV = 12500
 EXTERNAL_GPU_POWER_STABLE_SECONDS = 3.0
 EXTERNAL_GPU_POWER_LOG_INTERVAL_SECONDS = 10.0
 LAT_SMOOTH_BP = [2.0, 8.0]
+RIVIAN_LAT_SMOOTH_MAX = 0.4
 
 
 def _set_hcq_wait_timeout(timeout_ms: int) -> None:
@@ -177,8 +178,13 @@ def get_lateral_smooth_seconds(v_ego: float, maximum: float = 0.0) -> float:
   return float(np.interp(v_ego, LAT_SMOOTH_BP, [maximum, 0.0]))
 
 
-def get_car_lateral_smooth_seconds(brand: str, v_ego: float, maximum: float) -> float:
-  if brand in ("rivian", "subaru"):
+def get_car_lateral_smooth_seconds(brand: str, v_ego: float, maximum: float, flags: int = 0) -> float:
+  if brand == "rivian":
+    from opendbc.car.rivian.values import RivianFlags
+    if flags & RivianFlags.ANGLE_HARNESS:
+      return max(maximum, get_lateral_smooth_seconds(v_ego, RIVIAN_LAT_SMOOTH_MAX))
+    return maximum
+  if brand == "subaru":
     return get_lateral_smooth_seconds(v_ego, maximum)
   return maximum
 
@@ -908,7 +914,7 @@ def main(demo=False):
     v_ego = max(sm["carState"].vEgo, 0.)
     lat_smooth_default = CP.lateralSmoothSeconds if (CP.brand == "rivian" or CP.lateralSmoothSeconds > 0.0) else LAT_SMOOTH_SECONDS
     lat_smooth_maximum = _model_smooth_seconds(params, "LatSmoothSeconds", lat_smooth_default)
-    lat_smooth_seconds = get_car_lateral_smooth_seconds(CP.brand, v_ego, lat_smooth_maximum)
+    lat_smooth_seconds = get_car_lateral_smooth_seconds(CP.brand, v_ego, lat_smooth_maximum, CP.flags)
     lat_delay = sm["liveDelay"].lateralDelay + lat_smooth_seconds
     lateral_control_params = np.array([v_ego, lat_delay], dtype=np.float32)
     if sm.frame % 60 == 0:

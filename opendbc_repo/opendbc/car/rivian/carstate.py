@@ -12,8 +12,8 @@ GearShifter = structs.CarState.GearShifter
 
 
 def get_cruise_available(flags: int, acm_feature_status: int) -> bool:
-  # VDM reports unavailable until after stock ACC activates, so it cannot gate
-  # the PCM enable edge. The ACM reports standby before activation and ACC once active.
+  # VDM stays unavailable until stock ACC activates, while ACM reports standby
+  # before activation. The longitudinal harness does not depend on stock ACM.
   return bool(flags & RivianFlags.LONGITUDINAL_HARNESS) or acm_feature_status in (0, 1)
 
 
@@ -117,13 +117,10 @@ class CarState(CarStateBase):
     self.acm_lka_hba_cmd = copy.copy(cp_cam.vl["ACM_lkaHbaCmd"])
     if not (self.CP.flags & RivianFlags.GEN2):
       self.sccm_wheel_touch = copy.copy(cp.vl["SCCM_WheelTouch"])
-    # This message can lag and deliver two samples in one parser cycle. Forward
-    # every sample so cancelling stock ACC remains reliable.
+    # This message can lag and deliver two samples in one parser cycle. Forward every sample.
     adas_status_msgs = cp.vl_all["VDM_AdasSts"]
     self.vdm_adas_status = [dict(zip(adas_status_msgs, vals, strict=True))
                             for vals in zip(*adas_status_msgs.values(), strict=True)]
-    if not self.vdm_adas_status:
-      self.vdm_adas_status = [copy.copy(cp.vl["VDM_AdasSts"])]
 
     stalk_controls_enabled = (
       getattr(starpilot_toggles, "always_on_lateral", False) or

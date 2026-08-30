@@ -6,7 +6,9 @@ import numpy as np
 import pytest
 
 from cereal import messaging, log, car
-from openpilot.selfdrive.locationd.lagd import LateralLagEstimator, retrieve_initial_lag, masked_normalized_cross_correlation, \
+from opendbc.car.rivian.values import RivianFlags
+from openpilot.selfdrive.locationd.lagd import LateralLagEstimator, retrieve_initial_lag, lagd_input_sockets, \
+                                               masked_normalized_cross_correlation, \
                                                BLOCK_NUM_NEEDED, BLOCK_SIZE, MIN_OKAY_WINDOW_SEC, MAX_LAG
 from openpilot.selfdrive.test.process_replay.migration import migrate, migrate_carParams
 from openpilot.selfdrive.locationd.test.test_locationd_scenarios import TEST_ROUTE
@@ -47,6 +49,77 @@ def process_messages(estimator, lag_frames, n_frames, vego=20.0, rejection_thres
 
 
 class TestLagd:
+  @staticmethod
+  def _put_saved_lag(params, *, brand, flags=0):
+    msg = messaging.new_message("liveDelay")
+    msg.liveDelay.lateralDelayEstimate = 0.2
+    msg.liveDelay.validBlocks = 1
+    msg.liveDelay.status = log.LiveDelayData.Status.estimated
+    params.put("LiveDelay", msg.to_bytes())
+
+    previous_CP = car.CarParams(
+      brand=brand,
+      carFingerprint="TEST_PLATFORM",
+      steerControlType=car.CarParams.SteerControlType.torque,
+      flags=int(flags),
+    )
+    params.put("CarParamsPrevRoute", previous_CP.to_bytes())
+
+  def test_dynamic_rivian_steering_invalidates_saved_lag(self):
+    params = Params()
+
+    self._put_saved_lag(params, brand="rivian", flags=RivianFlags.ANGLE_HARNESS)
+    angle_rivian_CP = car.CarParams(
+      brand="rivian",
+      carFingerprint="TEST_PLATFORM",
+      steerControlType=car.CarParams.SteerControlType.torque,
+      flags=int(RivianFlags.ANGLE_HARNESS),
+    )
+    assert retrieve_initial_lag(params, angle_rivian_CP) is None
+
+    self._put_saved_lag(params, brand="rivian")
+    torque_rivian_CP = car.CarParams(
+      brand="rivian",
+      carFingerprint="TEST_PLATFORM",
+      steerControlType=car.CarParams.SteerControlType.torque,
+    )
+    assert retrieve_initial_lag(params, torque_rivian_CP) == pytest.approx((0.2, 1))
+
+    self._put_saved_lag(params, brand="toyota")
+    toyota_CP = car.CarParams(
+      brand="toyota",
+      carFingerprint="TEST_PLATFORM",
+      steerControlType=car.CarParams.SteerControlType.angle,
+    )
+    assert retrieve_initial_lag(params, toyota_CP) == pytest.approx((0.2, 1))
+
+  def test_dynamic_rivian_mode_change_resets_learned_lag(self):
+    CP = car.CarParams(
+      brand="rivian",
+      flags=int(RivianFlags.ANGLE_HARNESS),
+      steerActuatorDelay=0.1,
+    )
+    estimator = LateralLagEstimator(CP, DT)
+    torque_output = messaging.new_message("carOutput").carOutput
+    torque_output.actuatorsOutput.lateralControlMode = car.CarControl.Actuators.LateralControlMode.torque
+    angle_output = messaging.new_message("carOutput").carOutput
+    angle_output.actuatorsOutput.lateralControlMode = car.CarControl.Actuators.LateralControlMode.angle
+
+    estimator.handle_log(1.0, "carOutput", torque_output)
+    estimator.reset(0.2, 3)
+    estimator.handle_log(2.0, "carOutput", angle_output)
+
+    assert estimator.block_avg.valid_blocks == 0
+    assert estimator.rivian_lateral_mode == car.CarControl.Actuators.LateralControlMode.angle
+
+  def test_car_output_is_subscribed_only_for_extreme_rivian(self):
+    assert "carOutput" not in lagd_input_sockets(car.CarParams(brand="toyota"))
+    assert "carOutput" not in lagd_input_sockets(car.CarParams(brand="rivian"))
+    assert "carOutput" in lagd_input_sockets(car.CarParams(
+      brand="rivian",
+      flags=int(RivianFlags.ANGLE_HARNESS),
+    ))
+
   def test_manual_delay_uses_exact_configured_value(self):
     mocked_CP = car.CarParams(steerActuatorDelay=0.11)
     estimator = LateralLagEstimator(mocked_CP, DT)
