@@ -12,15 +12,6 @@ class CarInterface(CarInterfaceBase):
   RadarInterface = RadarInterface
 
   @staticmethod
-  def _apply_angle_caps(ret: structs.CarParams) -> None:
-    """Enable capabilities that are safe only with the xnor Extreme angle box."""
-    ret.flags |= RivianFlags.ANGLE_HARNESS.value
-    ret.safetyConfigs[0].safetyParam |= RivianSafetyFlags.ANGLE_CONTROL.value
-    ret.steerActuatorDelay = 0.1
-    ret.lateralSmoothSeconds = 0.4
-    ret.steerAtStandstill = True
-
-  @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "rivian"
 
@@ -34,17 +25,19 @@ class CarInterface(CarInterfaceBase):
     longitudinal_harness = 0x131A in fingerprint[1]
 
     if angle_harness:
-      CarInterface._apply_angle_caps(ret)
+      ret.flags |= RivianFlags.ANGLE_HARNESS.value
+      ret.safetyConfigs[0].safetyParam |= RivianSafetyFlags.ANGLE_CONTROL.value
+      ret.steerActuatorDelay = 0.1
+      ret.steerAtStandstill = True
+    else:
+      ret.steerActuatorDelay = 0.15
+      ret.steerAtStandstill = False
 
     if longitudinal_harness:
       ret.flags |= RivianFlags.LONGITUDINAL_HARNESS.value
 
-    # A base comma harness and the xnor longitudinal harness are valid torque
-    # configurations. Angle-only caps remain gated to the detected Extreme box.
-    if not angle_harness:
-      ret.steerActuatorDelay = 0.15
-      ret.lateralSmoothSeconds = 0.0
-      ret.steerAtStandstill = False
+    # modeld owns Extreme-harness crawl-speed smoothing; torque-only stays at 0.
+    ret.lateralSmoothSeconds = 0.0
     ret.steerLimitTimer = 0.4
     CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
@@ -57,9 +50,7 @@ class CarInterface(CarInterfaceBase):
       ret.openpilotLongitudinalControl = True
       ret.safetyConfigs[0].safetyParam |= RivianSafetyFlags.LONG_CONTROL.value
 
-    # AdventurePilot road data measured roughly 0.26-0.38 s command-to-aEgo
-    # lag. 0.3 s puts the planner near the center of the observed plant delay.
-    ret.longitudinalActuatorDelay = 0.3
+    ret.longitudinalActuatorDelay = 0.3  # measured command-to-aEgo lag is ~0.26-0.38 s
     ret.vEgoStopping = 0.25
     ret.stopAccel = -0.2
     ret.longitudinalTuning.kiBP = [0.]

@@ -207,6 +207,11 @@ class LateralLagEstimator:
     self.last_steering_saturated_t = 0.0
     self.last_pose_invalid_t = 0.0
     self.last_estimate_t = 0.0
+    self.dynamic_rivian_steering = False
+    if CP.brand == "rivian":
+      from opendbc.car.rivian.values import RivianFlags
+      self.dynamic_rivian_steering = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
+    self.rivian_lateral_mode = None
 
     self.calibrator = PoseCalibrator()
 
@@ -258,6 +263,23 @@ class LateralLagEstimator:
   def handle_log(self, t: float, which: str, msg: capnp._DynamicStructReader):
     if which == "carControl":
       self.lat_active = msg.latActive
+    elif which == "carOutput" and self.dynamic_rivian_steering:
+      mode = msg.actuatorsOutput.lateralControlMode
+      LateralControlMode = car.CarControl.Actuators.LateralControlMode
+      active_mode = None
+      if mode == LateralControlMode.angle:
+        active_mode = LateralControlMode.angle
+      elif mode in (LateralControlMode.torque, LateralControlMode.torqueRecovering):
+        active_mode = LateralControlMode.torque
+
+      if active_mode is not None:
+        if self.rivian_lateral_mode is not None and active_mode != self.rivian_lateral_mode:
+          # Angle and torque have different plant delays. Never mix their
+          # samples or block averages after a live Galaxy toggle/handoff.
+          self.reset(self.initial_lag, 0)
+          self.last_estimate_t = 0.0
+          self.last_lat_inactive_t = t
+        self.rivian_lateral_mode = active_mode
     elif which == "carState":
       self.steering_pressed = msg.steeringPressed
       self.v_ego = msg.vEgo
@@ -374,6 +396,14 @@ def retrieve_initial_lag(params: Params, CP: car.CarParams):
         if last_CP.carFingerprint != CP.carFingerprint:
           raise Exception("Car model mismatch")
 
+        if CP.brand == "rivian":
+          from opendbc.car.rivian.values import RivianFlags
+          # An Extreme-harness Rivian can change lateral channels live without
+          # changing CarParams.steerControlType. The cached message does not
+          # record which channel produced it, so it is unsafe to reuse.
+          if CP.flags & RivianFlags.ANGLE_HARNESS:
+            raise Exception("Dynamic Rivian steering mode; discard stale lag")
+
         lag, valid_blocks, status = ld.lateralDelayEstimate, ld.validBlocks, ld.status
         assert valid_blocks <= BLOCK_NUM, "Invalid number of valid blocks"
         assert status != log.LiveDelayData.Status.invalid, "Lag estimate is invalid"
@@ -385,16 +415,25 @@ def retrieve_initial_lag(params: Params, CP: car.CarParams):
   return None
 
 
+def lagd_input_sockets(CP: car.CarParams) -> list[str]:
+  sockets = ['livePose', 'liveCalibration', 'carState', 'controlsState', 'carControl']
+  if CP.brand == "rivian":
+    from opendbc.car.rivian.values import RivianFlags
+    if CP.flags & RivianFlags.ANGLE_HARNESS:
+      sockets.append('carOutput')
+  return sockets
+
+
 def main():
   config_realtime_process([0, 1, 2, 3], 5)
 
   DEBUG = bool(int(os.getenv("DEBUG", "0")))
 
-  pm = messaging.PubMaster(['liveDelay'])
-  sm = messaging.SubMaster(['livePose', 'liveCalibration', 'carState', 'controlsState', 'carControl'], poll='livePose')
-
   params = Params()
   CP = messaging.log_from_bytes(params.get("CarParams", block=True), car.CarParams)
+
+  pm = messaging.PubMaster(['liveDelay'])
+  sm = messaging.SubMaster(lagd_input_sockets(CP), poll='livePose')
 
   lag_learner = LateralLagEstimator(CP, 1. / SERVICE_LIST['livePose'].frequency)
   if (initial_lag_params := retrieve_initial_lag(params, CP)) is not None:

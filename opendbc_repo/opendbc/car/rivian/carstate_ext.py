@@ -24,7 +24,6 @@ class RivianLongitudinalState:
     self.scroll_click_pressed = False
     self.increase_counter = 0
     self.decrease_counter = 0
-    self.stalk_down_counter = 0
     self.vdm_user_adas_request = 0
     self._lkas_pending = False
     self._aol_prev_cruise_enabled = False
@@ -122,8 +121,7 @@ class RivianLongitudinalState:
         self.set_speed = ret.vEgoCluster
 
       stalk_down = int(cp.vl["VDM_AdasSts"]["VDM_UserAdasRequest"]) in (3, 4)
-      self.stalk_down_counter = self.stalk_down_counter + 1 if stalk_down else 0
-      if self.stalk_down_counter == 50:
+      if stalk_down:
         self.set_speed = max(self.set_speed, ret.vEgoCluster)
 
       self.set_speed = max(MIN_SET_SPEED, min(self.set_speed, MAX_SET_SPEED))
