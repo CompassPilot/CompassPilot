@@ -638,6 +638,7 @@ def test_favorite_slot_options_include_live_aol_and_virtual_cruise_actions(monke
 def test_rivian_angle_favorite_requires_detected_extreme_harness(monkeypatch):
   options = [
     {"key": "RivianAngleControl", "requiresCapability": "HasRivianAngleHarness"},
+    {"key": "RivianHalfUpStalkControl", "requiresCapability": "IsRivian"},
     {"key": "NonGatedFavorite", "requiresCapability": ""},
   ]
   monkeypatch.setattr(the_galaxy, "_get_favorite_slot_options", lambda: options)
@@ -650,6 +651,28 @@ def test_rivian_angle_favorite_requires_detected_extreme_harness(monkeypatch):
     "RivianAngleControl",
     "NonGatedFavorite",
   ]
+
+  monkeypatch.setattr(the_galaxy, "_get_is_rivian", lambda: True)
+  assert [option["key"] for option in the_galaxy._get_available_favorite_slot_options()] == [
+    "RivianAngleControl",
+    "RivianHalfUpStalkControl",
+    "NonGatedFavorite",
+  ]
+
+
+def test_params_all_exposes_rivian_capability(monkeypatch):
+  client, _ = _params_client(monkeypatch, {}, "mici")
+  monkeypatch.setattr(the_galaxy, "_get_has_radar", lambda: True)
+  monkeypatch.setattr(the_galaxy, "_get_vehicle_parked", lambda: True)
+  monkeypatch.setattr(the_galaxy, "_get_alpha_longitudinal_available", lambda: False)
+  monkeypatch.setattr(the_galaxy, "_get_has_rivian_angle_harness", lambda: False)
+  monkeypatch.setattr(the_galaxy, "_get_is_rivian", lambda: True)
+
+  response = client.get("/api/params/all")
+
+  assert response.status_code == 200
+  assert response.get_json()["HasRivianAngleHarness"] is False
+  assert response.get_json()["IsRivian"] is True
 
 
 def test_rivian_angle_speed_controls_are_live_editable(monkeypatch):

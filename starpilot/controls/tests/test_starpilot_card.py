@@ -1269,7 +1269,7 @@ def test_lkas_button_press_creates_bookmark(monkeypatch, tmp_path):
 
 def test_rivian_scroll_click_hold_uses_acc_state_during_longitudinal_override(monkeypatch, tmp_path):
   monkeypatch.setattr(spc, "Params", FakeParams)
-  monkeypatch.setattr(spc, "is_FrogsGoMoo", lambda: False)
+  monkeypatch.setattr(spc, "always_on_lateral_available", lambda CP: True)
   monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
 
   card = spc.StarPilotCard(SimpleNamespace(brand="rivian"), SimpleNamespace(alternativeExperience=0))
@@ -1297,7 +1297,7 @@ def test_rivian_scroll_click_hold_uses_acc_state_during_longitudinal_override(mo
 
 def test_non_rivian_traffic_mode_still_requires_longitudinal_control(monkeypatch, tmp_path):
   monkeypatch.setattr(spc, "Params", FakeParams)
-  monkeypatch.setattr(spc, "is_FrogsGoMoo", lambda: False)
+  monkeypatch.setattr(spc, "always_on_lateral_available", lambda CP: True)
   monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
 
   card = spc.StarPilotCard(SimpleNamespace(brand="gm"), SimpleNamespace(alternativeExperience=0))
@@ -1314,7 +1314,7 @@ def test_non_rivian_traffic_mode_still_requires_longitudinal_control(monkeypatch
 
 def test_rivian_traffic_mode_requires_acc_engagement(monkeypatch, tmp_path):
   monkeypatch.setattr(spc, "Params", FakeParams)
-  monkeypatch.setattr(spc, "is_FrogsGoMoo", lambda: False)
+  monkeypatch.setattr(spc, "always_on_lateral_available", lambda CP: True)
   monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
 
   card = spc.StarPilotCard(SimpleNamespace(brand="rivian"), SimpleNamespace(alternativeExperience=0))
@@ -1395,7 +1395,7 @@ def test_favorite_traffic_mode_action_is_consumed_when_not_active(monkeypatch, t
 
 def make_aol_card(monkeypatch, tmp_path, brand="rivian"):
   monkeypatch.setattr(spc, "Params", FakeParams)
-  monkeypatch.setattr(spc, "is_FrogsGoMoo", lambda: False)
+  monkeypatch.setattr(spc, "always_on_lateral_available", lambda CP: True)
   monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
   return spc.StarPilotCard(
     SimpleNamespace(brand=brand),

@@ -362,9 +362,12 @@ class StarPilotCard:
         elif carState.cruiseState.enabled and not self.prev_cruise_enabled:
           self.always_on_lateral_allowed = True
           self.aol_startup_pending = False
-      elif self.aol_startup_pending and driving_gear and carState.cruiseState.available:
-        self.always_on_lateral_allowed = True
-        self.aol_startup_pending = False
+      else:
+        # Preserve Dom's cruise-availability tracking for non-button-managed
+        # cars. Rivian uses the independent drive-scoped latch below.
+        self.always_on_lateral_allowed = carState.cruiseState.available
+        if self.always_on_lateral_allowed:
+          self.aol_startup_pending = False
 
     # Rivian uses a dedicated drive-scoped AOL latch. Start Enabled arms it
     # once when the vehicle first becomes drive-ready; Start Off waits for a
