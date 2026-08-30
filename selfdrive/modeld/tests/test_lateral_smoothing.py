@@ -10,12 +10,12 @@ from openpilot.selfdrive.modeld.modeld import get_car_lateral_smooth_seconds, ge
   (8.0, 0.0),
   (30.0, 0.0),
 ])
-def test_lateral_smoothing_tapers_with_speed(v_ego, expected):
+def test_shared_lateral_smoothing_keeps_starpilot_schedule(v_ego, expected):
   assert get_lateral_smooth_seconds(v_ego, 0.4) == pytest.approx(expected)
 
 
 @pytest.mark.parametrize("v_ego", [0.0, 5.0, 30.0])
-def test_default_lateral_smoothing_is_disabled(v_ego):
+def test_shared_default_lateral_smoothing_remains_disabled(v_ego):
   assert get_lateral_smooth_seconds(v_ego) == 0.0
 
 
@@ -37,9 +37,18 @@ def test_subaru_uses_low_speed_configured_smoothing(v_ego, expected):
 
 @pytest.mark.parametrize(("v_ego", "maximum", "expected"), [
   (0.0, 0.4, 0.4),
-  (5.0, 0.4, 0.2),
-  (30.0, 0.4, 0.0),
-  (0.0, 0.0, 0.0),
+  (5.0, 0.4, 0.4),
+  (30.0, 0.4, 0.4),
+  (0.0, 0.0, 0.4),
+  (5.0, 0.0, 0.2),
+  (30.0, 0.0, 0.0),
 ])
-def test_rivian_uses_configured_smoothing(v_ego, maximum, expected):
-  assert get_car_lateral_smooth_seconds("rivian", v_ego, maximum) == pytest.approx(expected)
+def test_rivian_extreme_uses_crawl_speed_floor_over_configured_base(v_ego, maximum, expected):
+  from opendbc.car.rivian.values import RivianFlags
+  assert get_car_lateral_smooth_seconds("rivian", v_ego, maximum, RivianFlags.ANGLE_HARNESS) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("v_ego", [0.0, 5.0, 30.0])
+def test_rivian_torque_only_keeps_configured_smoothing(v_ego):
+  assert get_car_lateral_smooth_seconds("rivian", v_ego, 0.0) == 0.0
+  assert get_car_lateral_smooth_seconds("rivian", v_ego, 0.4) == 0.4

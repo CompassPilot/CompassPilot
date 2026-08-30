@@ -306,6 +306,7 @@ def test_params_all_exposes_rivian_capability(monkeypatch):
   response = client.get("/api/params/all")
 
   assert response.status_code == 200
+  assert response.get_json()["HasRivianAngleHarness"] is False
   assert response.get_json()["IsRivian"] is True
 
 

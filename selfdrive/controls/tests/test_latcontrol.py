@@ -15,6 +15,7 @@ from opendbc.car.nissan.values import CAR as NISSAN
 from opendbc.car.gm.values import CAR as GM
 from opendbc.car.hyundai.values import CAR as HYUNDAI
 from opendbc.car.subaru.values import CAR as SUBARU
+from opendbc.car.rivian.values import CAR as RIVIAN
 from opendbc.car.vehicle_model import VehicleModel
 from openpilot.common.realtime import DT_CTRL
 from openpilot.selfdrive.controls.lib.latcontrol_angle import LatControlAngle, _ascent_angle_tracking_target
@@ -2118,7 +2119,8 @@ class TestLatControl:
     assert abs(tuned_output) >= abs(base_output)
 
   @parameterized.expand([(HONDA.HONDA_CIVIC, LatControlPID), (TOYOTA.TOYOTA_RAV4, LatControlTorque),
-                         (NISSAN.NISSAN_LEAF, LatControlAngle), (GM.CHEVROLET_BOLT_ACC_2022_2023, LatControlTorque)])
+                         (NISSAN.NISSAN_LEAF, LatControlAngle), (GM.CHEVROLET_BOLT_ACC_2022_2023, LatControlTorque),
+                         (RIVIAN.RIVIAN_R1_GEN1, LatControlAngle)])
   def test_saturation(self, car_name, controller):
     CarInterface = interfaces[car_name]
     CP = CarInterface.get_non_essential_params(car_name)

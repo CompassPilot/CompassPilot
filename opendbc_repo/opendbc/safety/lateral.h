@@ -73,13 +73,13 @@ bool steer_torque_cmd_checks(int desired_torque, int steer_req, const TorqueStee
     // *** global torque limit check ***
     violation |= safety_max_limit_check(desired_torque, max_torque, -max_torque);
 
-    // Some EPS fault-avoidance handshakes require a zero-torque request cut.
+    // Some EPS fault-avoidance handshakes cut torque to zero, including the
+    // (steer_req=1, torque=0) rearm frames before overlay is acknowledged.
     // Preserve the rate-limit reference so assist can resume without a sawtooth.
-    const bool zero_request_cut = limits.preserve_torque_on_zero_request &&
-                                  (steer_req == 0) && (desired_torque == 0);
+    const bool zero_torque_cut = limits.preserve_torque_on_zero_request && (desired_torque == 0);
 
     // *** torque rate limit check ***
-    if (!zero_request_cut) {
+    if (!zero_torque_cut) {
       if (limits.type == TorqueDriverLimited) {
         violation |= driver_limit_check(desired_torque, desired_torque_last, &torque_driver,
                                         max_torque, limits.max_rate_up, limits.max_rate_down,
@@ -92,14 +92,14 @@ bool steer_torque_cmd_checks(int desired_torque, int steer_req, const TorqueStee
     }
 
     // *** torque real time rate limit check ***
-    if (!zero_request_cut) {
+    if (!zero_torque_cut) {
       violation |= rt_torque_rate_limit_check(desired_torque, rt_torque_last, limits.max_rt_delta);
     }
 
     // every RT_INTERVAL set the new limits
     uint32_t ts_elapsed = safety_get_ts_elapsed(ts, ts_torque_check_last);
     if (ts_elapsed > MAX_RT_INTERVAL) {
-      if (!zero_request_cut) {
+      if (!zero_torque_cut) {
         rt_torque_last = desired_torque;
       }
       ts_torque_check_last = ts;
