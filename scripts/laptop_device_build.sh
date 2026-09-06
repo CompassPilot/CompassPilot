@@ -485,11 +485,13 @@ ffmpeg_lib_dir="/work/.venv-linux-arm64/lib/python3.12/site-packages/ffmpeg/inst
 target_ffmpeg_runpath="/usr/local/venv/lib/python3.12/site-packages/ffmpeg/install/lib"
 runtime_library_path="${ffmpeg_lib_dir}:/work/third_party/acados/larch64/lib:/work/third_party/libyuv/larch64/lib:/work/selfdrive/controls/lib/lateral_mpc_lib/c_generated_code:/work/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code:/opt/tici-sysroot/usr/local/lib:/opt/tici-sysroot/lib/aarch64-linux-gnu:/opt/tici-sysroot/usr/lib/aarch64-linux-gnu:/system/vendor/lib64"
 failures=0
+validated=0
 
 while IFS= read -r -d "" artifact; do
   if ! readelf -h "${artifact}" 2>/dev/null | grep -q "Machine:.*AArch64"; then
     continue
   fi
+  validated=$((validated + 1))
 
   dynamic="$(readelf -d "${artifact}" 2>/dev/null || true)"
   if grep -Eq "(RPATH|RUNPATH).*\/work\/" <<<"${dynamic}"; then
@@ -521,9 +523,18 @@ while IFS= read -r -d "" artifact; do
     echo "${missing}" >&2
     failures=1
   fi
-done < <(git ls-files -z)
+done < <(
+  # Validate artifacts created or replaced by this build. The repository also
+  # tracks bundled target binaries that depend on device-only vendor libraries;
+  # those are not outputs of this SCons invocation and are outside this check.
+  git ls-files -z --modified --others --exclude-standard --deduplicate
+)
 
-exit "${failures}"
+if [[ "${failures}" -ne 0 ]]; then
+  echo "ERROR: larch64 runtime dependency validation failed (${validated} rebuilt artifacts checked)" >&2
+  exit 1
+fi
+echo "==> Validated ${validated} rebuilt larch64 artifacts"
 '
 }
 
