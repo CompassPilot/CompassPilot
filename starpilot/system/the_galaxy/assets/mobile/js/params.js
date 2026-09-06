@@ -4,6 +4,7 @@ const HIDDEN_SETTING_KEYS = new Set(["HumanAcceleration"])
 const RADAR_REQUIRED_KEYS = new Set(["HumanLaneChanges", "RadarTakeoffs"])
 const VEHICLE_SETTING_MAKES = {
   RivianAngleControl: ["Rivian"],
+  RivianWakeBootsComma: ["Rivian"],
   TeslaCoopSteering: ["Tesla"],
   NAPRadarEnabled: ["Tesla"],
   NAPRadarBehindNosecone: ["Tesla"],

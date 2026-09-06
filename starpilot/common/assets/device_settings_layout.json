@@ -2540,6 +2540,16 @@
         "settings_tier": "simple"
       },
       {
+        "key": "HomeScreenName",
+        "label": "Custom Home Screen Name",
+        "description": "Replace the CompassPilot wordmark on the home screen. Leave it blank to use CompassPilot. Maximum 12 characters.",
+        "data_type": "string",
+        "ui_type": "text",
+        "placeholder": "CompassPilot",
+        "max_length": 12,
+        "settings_tier": "advanced"
+      },
+      {
         "key": "HideSpeed",
         "label": "Hide Current Speed",
         "description": "Hide the current speed from the driving screen.",
@@ -2610,7 +2620,7 @@
       {
         "key": "CustomUI",
         "label": "Driving Screen Widgets",
-        "description": "Custom StarPilot widgets for the driving screen.",
+        "description": "Custom CompassPilot widgets for the driving screen.",
         "picker_description": "Enables StarPilot widgets on the driving screen.",
         "data_type": "bool",
         "ui_type": "toggle",
@@ -3321,6 +3331,15 @@
         "step": 1.0,
         "parent_key": "RivianAngleSpeedControl",
         "requires_capability": "HasRivianAngleHarness",
+        "settings_tier": "simple"
+      },
+      {
+        "key": "RivianWakeBootsComma",
+        "label": "Rivian Vehicle Activity Wake",
+        "description": "Use Rivian comma 4 Panda firmware that wakes a fully powered-down comma when the vehicle produces CAN or SBU activity.\n\nRequires a Panda flash.",
+        "picker_description": "Wakes a powered-down comma 4 from Rivian vehicle activity; requires a Panda flash.",
+        "data_type": "bool",
+        "ui_type": "toggle",
         "settings_tier": "simple"
       },
       {
@@ -4909,7 +4928,7 @@
       {
         "key": "RedneckCruise",
         "label": "Redneck Cruise",
-        "description": "On supported Hyundai stock-cruise cars, use RES/SET button presses to match the cluster set speed to StarPilot's target.",
+        "description": "On supported Hyundai stock-cruise cars, use RES/SET button presses to match the cluster set speed to CompassPilot's target.",
         "picker_description": "Matches StarPilot's target speed with Hyundai RES/SET.",
         "data_type": "bool",
         "ui_type": "toggle",

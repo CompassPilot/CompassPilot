@@ -266,6 +266,7 @@ RelaxedJerkSpeedDecrease
 RelaxedPersonalityProfile
 RemapCancelToDistance
 RemoteStartBootsComma
+RivianWakeBootsComma
 RoadEdgesWidth
 RoadNameUI
 RotatingWheel

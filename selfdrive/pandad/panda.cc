@@ -140,6 +140,7 @@ bool Panda::up_to_date() {
     for (auto fn : {
       "panda.bin.signed",
       "panda_h7.bin.signed",
+      "panda_h7_rivian.bin.signed",
       "panda_remote.bin.signed",
       "panda_h7_remote.bin.signed",
       "panda_can_ignition_only.bin.signed",

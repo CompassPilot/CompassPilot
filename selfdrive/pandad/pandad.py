@@ -11,10 +11,16 @@ from openpilot.common.basedir import BASEDIR
 from openpilot.common.params import Params, UnknownKeyName
 from openpilot.system.hardware import HARDWARE
 from openpilot.common.swaglog import cloudlog
-from openpilot.selfdrive.pandad.rivian_long_flasher import prepare_rivian_bridge
+from openpilot.selfdrive.pandad.rivian_long_flasher import is_rivian_vehicle, prepare_rivian_bridge
+
+RIVIAN_WAKE_FIRMWARE = "panda_h7_rivian.bin.signed"
 
 
-def get_selected_firmware_name(app_fn: str, remote_start: bool, hkg_remote_start: bool, ignore_ignition_line: bool) -> str:
+def get_selected_firmware_name(app_fn: str, remote_start: bool, hkg_remote_start: bool, ignore_ignition_line: bool,
+                               rivian_wake: bool = False) -> str:
+  if rivian_wake:
+    return RIVIAN_WAKE_FIRMWARE if app_fn == "panda_h7.bin.signed" else app_fn
+
   if not remote_start and not hkg_remote_start and not ignore_ignition_line:
     return app_fn
 
@@ -29,9 +35,10 @@ def get_selected_firmware_name(app_fn: str, remote_start: bool, hkg_remote_start
   return "_".join(name_parts) + ".bin.signed"
 
 
-def get_expected_firmware_path(panda: Panda, remote_start: bool, hkg_remote_start: bool, ignore_ignition_line: bool) -> str:
+def get_expected_firmware_path(panda: Panda, remote_start: bool, hkg_remote_start: bool, ignore_ignition_line: bool,
+                               rivian_wake: bool = False) -> str:
   app_fn = panda.get_mcu_type().config.app_fn
-  selected_fn = get_selected_firmware_name(app_fn, remote_start, hkg_remote_start, ignore_ignition_line)
+  selected_fn = get_selected_firmware_name(app_fn, remote_start, hkg_remote_start, ignore_ignition_line, rivian_wake)
   if selected_fn != app_fn:
     selected_path = os.path.join(FW_PATH, selected_fn)
     if os.path.isfile(selected_path):
@@ -40,9 +47,10 @@ def get_expected_firmware_path(panda: Panda, remote_start: bool, hkg_remote_star
   return os.path.join(FW_PATH, app_fn)
 
 
-def get_expected_signature(panda: Panda, remote_start: bool, hkg_remote_start: bool, ignore_ignition_line: bool) -> bytes:
+def get_expected_signature(panda: Panda, remote_start: bool, hkg_remote_start: bool, ignore_ignition_line: bool,
+                           rivian_wake: bool = False) -> bytes:
   try:
-    fn = get_expected_firmware_path(panda, remote_start, hkg_remote_start, ignore_ignition_line)
+    fn = get_expected_firmware_path(panda, remote_start, hkg_remote_start, ignore_ignition_line, rivian_wake)
     return Panda.get_signature_from_firmware(fn)
   except Exception:
     cloudlog.exception("Error computing expected signature")
@@ -63,6 +71,13 @@ def get_hkg_remote_start_boots_comma(params: Params) -> bool:
     return False
 
 
+def get_rivian_wake_boots_comma(params: Params) -> bool:
+  try:
+    return params.get_bool("RivianWakeBootsComma")
+  except UnknownKeyName:
+    return False
+
+
 def get_ignore_ignition_line(params: Params) -> bool:
   try:
     return params.get_bool("IgnoreIgnitionLine")
@@ -70,7 +85,12 @@ def get_ignore_ignition_line(params: Params) -> bool:
     return False
 
 
-def flash_panda(panda_serial: str, remote_start: bool, hkg_remote_start: bool, ignore_ignition_line: bool) -> Panda:
+def is_rivian_wake_panda(panda: Panda, rivian: bool, rivian_wake_enabled: bool) -> bool:
+  return rivian and rivian_wake_enabled and panda.is_internal() and panda.get_type() == Panda.HW_TYPE_CUATRO
+
+
+def flash_panda(panda_serial: str, remote_start: bool, hkg_remote_start: bool, ignore_ignition_line: bool,
+                rivian: bool = False, rivian_wake_enabled: bool = False) -> Panda:
   try:
     panda = Panda(panda_serial)
   except PandaProtocolMismatch:
@@ -78,9 +98,10 @@ def flash_panda(panda_serial: str, remote_start: bool, hkg_remote_start: bool, i
     HARDWARE.recover_internal_panda()
     raise
 
-  fw_path = get_expected_firmware_path(panda, remote_start, hkg_remote_start, ignore_ignition_line)
-  fw_signature = get_expected_signature(panda, remote_start, hkg_remote_start, ignore_ignition_line)
   internal_panda = panda.is_internal()
+  rivian_wake = is_rivian_wake_panda(panda, rivian, rivian_wake_enabled)
+  fw_path = get_expected_firmware_path(panda, remote_start, hkg_remote_start, ignore_ignition_line, rivian_wake)
+  fw_signature = get_expected_signature(panda, remote_start, hkg_remote_start, ignore_ignition_line, rivian_wake)
 
   panda_version = "bootstub" if panda.bootstub else panda.get_version()
   panda_signature = b"" if panda.bootstub else panda.get_signature()
@@ -128,6 +149,7 @@ def main() -> None:
   first_run = True
   params = Params()
   no_internal_panda_count = 0
+  rivian = False
 
   while not do_exit:
     try:
@@ -160,6 +182,8 @@ def main() -> None:
 
       cloudlog.info(f"{len(panda_serials)} panda(s) found, connecting - {panda_serials}")
 
+      rivian = is_rivian_vehicle()
+
       # Update and reserve the Rivian harness bridge before managing internal Pandas.
       bridge_serials = prepare_rivian_bridge(panda_serials)
       panda_serials = [serial for serial in panda_serials if serial not in bridge_serials]
@@ -171,9 +195,11 @@ def main() -> None:
       pandas: list[Panda] = []
       remote_start = get_remote_start_boots_comma(params)
       hkg_remote_start = get_hkg_remote_start_boots_comma(params)
+      rivian_wake_enabled = get_rivian_wake_boots_comma(params)
       ignore_ignition_line = get_ignore_ignition_line(params)
       for serial in panda_serials:
-        pandas.append(flash_panda(serial, remote_start, hkg_remote_start, ignore_ignition_line))
+        pandas.append(flash_panda(serial, remote_start, hkg_remote_start, ignore_ignition_line, rivian, rivian_wake_enabled))
+      rivian_wake_active = any(is_rivian_wake_panda(panda, rivian, rivian_wake_enabled) for panda in pandas)
 
       # Ensure internal panda is present if expected
       internal_pandas = [panda for panda in pandas if panda.is_internal()]
@@ -225,7 +251,8 @@ def main() -> None:
     first_run = False
 
     # run pandad with all connected serials as arguments
-    if get_remote_start_boots_comma(params) or get_hkg_remote_start_boots_comma(params) or get_ignore_ignition_line(params):
+    if (rivian_wake_active or get_remote_start_boots_comma(params) or get_hkg_remote_start_boots_comma(params) or
+        get_ignore_ignition_line(params)):
       os.environ["BOARDD_SKIP_FW_CHECK"] = "1"
     else:
       os.environ.pop("BOARDD_SKIP_FW_CHECK", None)

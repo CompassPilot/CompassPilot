@@ -18,6 +18,7 @@ const VEHICLE_SETTING_MAKES = {
   RivianAngleControl: ["Rivian"],
   RivianAngleSpeedControl: ["Rivian"],
   RivianAngleMinimumSpeed: ["Rivian"],
+  RivianWakeBootsComma: ["Rivian"],
   TeslaCoopSteering: ["Tesla"],
   NAPRadarEnabled: ["Tesla"],
   NAPRadarBehindNosecone: ["Tesla"],
@@ -59,7 +60,7 @@ let favoritePollTimer = null
 let cscCalibrationPollInflight = null
 let cscCalibrationPollTimer = null
 const DYNAMIC_DEFAULT_DEP_KEYS = new Set(["AccelerationProfile", "EVTuning", "TruckTuning"])
-const PANDA_FIRMWARE_TOGGLE_KEYS = new Set(["IgnoreIgnitionLine", "RemoteStartBootsComma", "HKGRemoteStartBootsComma"])
+const PANDA_FIRMWARE_TOGGLE_KEYS = new Set(["IgnoreIgnitionLine", "RemoteStartBootsComma", "HKGRemoteStartBootsComma", "RivianWakeBootsComma"])
 const FLM_ADVANCED_LATERAL_KEYS = new Set([
   "AdvancedLateralTune", "ForceAutoTune", "ForceAutoTuneOff", "UseAutoSteerDelay", "SteerDelay",
   "SteerFriction", "SteerKP", "SteerLatAccel", "SteerRatio",
@@ -1701,6 +1702,7 @@ function renderSettingRow(p) {
         id="ds-${p.key}"
         value="${() => toSelectValue(state.values[p.key])}"
         placeholder="${p.placeholder || ""}"
+        maxlength="${p.max_length || ""}"
         disabled="${() => isLocked()}"
         @change="${() => updateParam(p.key, "text")}" />
     `
