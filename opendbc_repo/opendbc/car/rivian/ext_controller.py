@@ -93,6 +93,7 @@ def get_safety_CP():
 
 class ExternalController:
   def __init__(self, CP):
+    self.VM = VehicleModel(CP)
     self.VM_safety = VehicleModel(get_safety_CP())
     self.gen2 = bool(CP.flags & RivianFlags.GEN2)
     self.angle_harness = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
@@ -121,10 +122,12 @@ class ExternalController:
     self.prearm_abort_lockout = 0
     self.prearm_last_outcome = ""
 
-    # Angle command.
+    # Angle command. LiveParameters are pushed in from card each frame.
     self.apply_angle_last = 0.0
     self.angle_active = False
     self.rate_budget = _RateBudget()
+    self.roll = 0.0
+    self.angle_offset_deg = 0.0
 
     # Cooperative torque and its EPAS feedback handshake.
     self.apply_torque_last = 0
@@ -134,7 +137,8 @@ class ExternalController:
 
   def update(self, CS, lat_active: bool, actuators) -> None:
     self._update_hands_on(CS)
-    desired_angle = float(actuators.steeringAngleDeg)
+    desired_angle = math.degrees(self.VM.get_steer_from_curvature(
+      -float(actuators.curvature), CS.out.vEgo, self.roll)) + self.angle_offset_deg
     self._update_torque_active(CS, lat_active, desired_angle, actuators)
     self._update_angle(CS, lat_active, desired_angle)
     self._update_torque(CS, actuators)

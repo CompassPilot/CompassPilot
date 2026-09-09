@@ -58,6 +58,12 @@ class CarController(CarControllerBase):
       put_bool("RivianToiRecoveryFailed", failed)
       self.toi_recovery_failed_last = failed
 
+  def update_live_params(self, roll, angle_offset_deg, stiffness_factor, steer_ratio):
+    if self.ext_controller is not None:
+      self.ext_controller.roll = roll
+      self.ext_controller.angle_offset_deg = angle_offset_deg
+      self.ext_controller.VM.update_params(max(stiffness_factor, 0.1), max(steer_ratio, 0.1))
+
   def _update_angle_request(self, starpilot_toggles, v_ego: float) -> bool:
     angle_control = bool(getattr(starpilot_toggles, "rivian_angle_control", False))
     speed_control = bool(getattr(starpilot_toggles, "rivian_angle_speed_control", False))

@@ -142,6 +142,54 @@ class TestRivian:
       ("RivianToiRecoveryFailed", True),
     ]
 
+  def test_live_params_update_rx_dev_command_model(self):
+    updates = []
+    controller = CarController.__new__(CarController)
+    controller.ext_controller = SimpleNamespace(
+      roll=0.0,
+      angle_offset_deg=0.0,
+      VM=SimpleNamespace(update_params=lambda stiffness, ratio: updates.append((stiffness, ratio))),
+    )
+
+    controller.update_live_params(0.05, 1.25, 0.8, 16.0)
+
+    assert controller.ext_controller.roll == 0.05
+    assert controller.ext_controller.angle_offset_deg == 1.25
+    assert updates == [(0.8, 16.0)]
+
+  def test_angle_command_uses_curvature_vehicle_model(self, monkeypatch):
+    controller = ExternalController(self._car_params((0x1310,)))
+    monkeypatch.setattr(controller.VM, "get_steer_from_curvature", lambda *args: math.radians(30.0))
+    controller.angle_offset_deg = 2.0
+    controller.lat_active_last = True
+    controller.apply_angle_last = 32.0
+    for _ in range(16):
+      controller.rate_budget.push(32.0)
+    state = SimpleNamespace(
+      out=SimpleNamespace(
+        vEgo=8.0,
+        vEgoRaw=8.0,
+        aEgo=0.0,
+        steeringAngleDeg=0.0,
+        steeringRateDeg=0.0,
+        steeringPressed=False,
+        steeringTorque=0.0,
+      ),
+      eac_status=2,
+      eac_error_code=0,
+      hands_on_level=0,
+      sccm_wheel_touch={"SCCM_WheelTouch_Calibration": 100, "SCCM_WheelTouch_CapacitiveValue": 0},
+      toi_fault=False,
+      toi_active=False,
+      toi_unavailable=False,
+    )
+    actuators = SimpleNamespace(curvature=0.08, steeringAngleDeg=123.0, torque=0.0)
+
+    controller.update(state, True, actuators)
+
+    assert controller.apply_angle_last == pytest.approx(32.0, abs=2.0)
+    assert abs(controller.apply_angle_last - 123.0) > 50.0
+
   @pytest.mark.parametrize("feature_status", range(8))
   def test_stock_harness_cruise_availability_uses_acm_state(self, feature_status):
     assert get_cruise_available(RivianFlags(0), feature_status) == (feature_status in (0, 1))
