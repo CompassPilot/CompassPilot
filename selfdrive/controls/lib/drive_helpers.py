@@ -22,6 +22,15 @@ def smooth_value(val, prev_val, tau, dt=DT_MDL):
   alpha = 1 - np.exp(-dt/tau) if tau > 0 else 1
   return alpha * val + (1 - alpha) * prev_val
 
+def compensate_rear_axle_offtracking(curvature: float, wheelbase: float) -> float:
+  # Command front-axle curvature so the rear axle follows the given path.
+  # Low-speed bicycle model: R_front = sqrt(R^2 + L^2) => k' = k / sqrt(1 + (k L)^2).
+  if wheelbase <= 0.0:
+    return float(curvature)
+  kl = curvature * wheelbase
+  return float(curvature / np.sqrt(1.0 + kl * kl))
+
+
 def clip_curvature(v_ego, prev_curvature, new_curvature, roll, jerk_factor=1.0, lat_accel_factor=1.0) -> tuple[float, bool]:
   # This function respects ISO lateral jerk and acceleration limits + a max curvature
   v_ego = max(v_ego, MIN_SPEED)
