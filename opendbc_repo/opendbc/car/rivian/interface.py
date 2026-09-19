@@ -3,7 +3,7 @@ from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.car.rivian.carcontroller import CarController
 from opendbc.car.rivian.carstate import CarState
 from opendbc.car.rivian.radar_interface import RadarInterface
-from opendbc.car.rivian.values import RivianFlags, RivianSafetyFlags
+from opendbc.car.rivian.values import CAR, RivianFlags, RivianSafetyFlags
 
 
 class CarInterface(CarInterfaceBase):
@@ -16,6 +16,8 @@ class CarInterface(CarInterfaceBase):
     ret.brand = "rivian"
 
     ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.rivian)]
+    if candidate == CAR.RIVIAN_R1T_GEN1:
+      ret.safetyConfigs[0].safetyParam |= RivianSafetyFlags.R1T.value
 
     # Gen 2 (2025+) does not publish SCCM_WheelTouch on the powertrain bus.
     if 0x321 not in fingerprint[0]:

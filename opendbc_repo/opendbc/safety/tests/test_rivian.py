@@ -4,7 +4,7 @@ import numpy as np
 
 from opendbc.car.lateral import get_max_angle_delta_vm, get_max_angle_vm
 from opendbc.car.rivian.carcontroller import get_safety_CP
-from opendbc.car.rivian.values import CarControllerParams, RivianSafetyFlags
+from opendbc.car.rivian.values import CAR, CarControllerParams, RivianSafetyFlags
 from opendbc.car.rivian.riviancan import checksum as _checksum
 from opendbc.car.structs import CarParams
 from opendbc.car.vehicle_model import VehicleModel
@@ -292,6 +292,22 @@ class TestRivianAngleSafety(TestRivianAngleSafetyBase):
     self.safety.init_tests()
 
 
+class TestRivianAngleSafetyR1T(TestRivianAngleSafetyBase):
+  LONGITUDINAL = False
+
+  def setUp(self):
+    self.VM = VehicleModel(get_safety_CP(CAR.RIVIAN_R1T_GEN1))
+    self.packer = CANPackerSafety("rivian_primary_actuator")
+    self.safety = libsafety_py.libsafety
+    self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, RivianSafetyFlags.ANGLE_CONTROL | RivianSafetyFlags.R1T)
+    self.safety.init_tests()
+
+  def test_r1t_angle_limit_exceeds_r1s(self):
+    r1s_max = get_max_angle_vm(10.0, VehicleModel(get_safety_CP()), CarControllerParams)
+    r1t_max = get_max_angle_vm(10.0, self.VM, CarControllerParams)
+    self.assertGreater(r1t_max, r1s_max)
+
+
 class TestRivianAngleLongitudinalSafety(TestRivianAngleSafetyBase):
   LONGITUDINAL = True
   TX_MSGS = [[0x100, 0], [0x110, 0], [0x120, 0], [0x321, 2], [0x160, 0], [0x162, 2]]
@@ -566,7 +582,9 @@ class TestRivianAOLSafety(unittest.TestCase):
       RivianSafetyFlags(0),
       RivianSafetyFlags.ANGLE_CONTROL,
       RivianSafetyFlags.LONG_CONTROL,
+      RivianSafetyFlags.R1T,
       RivianSafetyFlags.ANGLE_CONTROL | RivianSafetyFlags.LONG_CONTROL,
+      RivianSafetyFlags.ANGLE_CONTROL | RivianSafetyFlags.R1T,
     ):
       flags = RivianSafetyFlags.AOL_LATERAL | harness_flags
       self.assertEqual(self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, flags), 0)

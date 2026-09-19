@@ -40,22 +40,37 @@ class RivianPlatformConfig(PlatformConfig):
   years: set[ModelYear] = field(default_factory=set)
 
 
+# R1S Launch Edition curb (7068 lb) and 121.1 in wheelbase, rounded up.
+R1S_SPECS = CarSpecs(mass=3206., wheelbase=3.08, steerRatio=15.2)
+# R1T Dual curb (7147 lb) and 135.8 in wheelbase, rounded up like R1S.
+R1T_SPECS = CarSpecs(mass=3242., wheelbase=3.45, steerRatio=15.2)
+RIVIAN_R1_YEARS = {ModelYear.N_2022, ModelYear.P_2023, ModelYear.R_2024, ModelYear.S_2025}
+
+
 class CAR(Platforms):
-  # Retain the historical platform identifier for stored fingerprints and
-  # routes; RivianFlags.GEN2 distinguishes the vehicle generation at runtime.
-  RIVIAN_R1_GEN1 = RivianPlatformConfig(
+  # RivianFlags.GEN2 still distinguishes 2025+ at runtime from CAN.
+  # Historical fingerprints/routes used RIVIAN_R1_GEN1; car_helpers maps that to R1S.
+  RIVIAN_R1S_GEN1 = RivianPlatformConfig(
     [
       RivianCarDocs("Rivian R1S 2022-24", video="https://youtu.be/dflSSGQwYNc", setup_video="https://youtu.be/uaISd1j7Z4U",
                     car_parts=CarParts.common([CarHarness.rivian])),
       RivianCarDocs("Rivian R1S 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
+    ],
+    R1S_SPECS,
+    wmis={WMI.RIVIAN_MPV},
+    lines={ModelLine.R1S},
+    years=RIVIAN_R1_YEARS,
+  )
+  RIVIAN_R1T_GEN1 = RivianPlatformConfig(
+    [
       RivianCarDocs("Rivian R1T 2022-24", video="https://youtu.be/dflSSGQwYNc", setup_video="https://youtu.be/uaISd1j7Z4U",
                     car_parts=CarParts.common([CarHarness.rivian])),
       RivianCarDocs("Rivian R1T 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
     ],
-    CarSpecs(mass=3206., wheelbase=3.08, steerRatio=15.2),
-    wmis={WMI.RIVIAN_TRUCK, WMI.RIVIAN_MPV},
-    lines={ModelLine.R1T, ModelLine.R1S},
-    years={ModelYear.N_2022, ModelYear.P_2023, ModelYear.R_2024, ModelYear.S_2025},
+    R1T_SPECS,
+    wmis={WMI.RIVIAN_TRUCK},
+    lines={ModelLine.R1T},
+    years=RIVIAN_R1_YEARS,
   )
 
 
@@ -70,7 +85,13 @@ def match_fw_to_car_fuzzy(live_fw_versions, vin, offline_fw_versions) -> set[str
     if vin_obj.wmi in platform.config.wmis and line in platform.config.lines and year in platform.config.years:
       candidates.add(platform)
 
-  return {str(c) for c in candidates}
+  if candidates:
+    return {str(c) for c in candidates}
+
+  # Failed/unknown VIN still fingerprints as R1S so a missing VIN query does not drop Rivian.
+  if vin_obj.wmi not in {WMI.RIVIAN_TRUCK, WMI.RIVIAN_MPV}:
+    return {str(CAR.RIVIAN_R1S_GEN1)}
+  return set()
 
 
 RIVIAN_VERSION_REQUEST = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER]) + \
@@ -102,6 +123,7 @@ FW_QUERY_CONFIG = FwQueryConfig(
     ),
   ],
   match_fw_to_car_fuzzy=match_fw_to_car_fuzzy,
+  fuzzy_only_platforms={CAR.RIVIAN_R1S_GEN1, CAR.RIVIAN_R1T_GEN1},
 )
 
 GEAR_MAP = {
@@ -158,6 +180,7 @@ class RivianSafetyFlags(IntFlag):
   AOL_BRAKE_REMAINS_ACTIVE = 8
   AOL_STALK_TOGGLE = 16
   AOL_START_ENABLED = 32
+  R1T = 64
 
 
 class RivianFlags(IntFlag):
