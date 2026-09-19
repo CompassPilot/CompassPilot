@@ -3,6 +3,7 @@ import math
 import pytest
 
 from openpilot.selfdrive.controls.lib.drive_helpers import (
+  REAR_AXLE_OFFTRACKING_FOLLOW_FRAC,
   compensate_rear_axle_offtracking,
   get_kona_non_scc_lateral_active,
   get_lateral_active,
@@ -61,18 +62,22 @@ def test_get_lateral_active_honors_manual_pause_while_cruise_is_engaged():
 
 def test_rear_axle_offtracking_leaves_straight_and_highway_alone():
   assert compensate_rear_axle_offtracking(0.0, 3.45) == 0.0
+  L_eff = 3.45 * REAR_AXLE_OFFTRACKING_FOLLOW_FRAC
   highway = compensate_rear_axle_offtracking(0.01, 3.45)
-  assert highway == pytest.approx(0.01 / math.sqrt(1.0 + (0.01 * 3.45) ** 2))
+  assert highway == pytest.approx(0.01 / math.sqrt(1.0 + (0.01 * L_eff) ** 2))
   assert abs(highway - 0.01) < 6e-4
 
 
-def test_rear_axle_offtracking_uses_exact_bicycle_model():
-  # R_front = sqrt(R^2 + L^2) => k' = k / sqrt(1 + (k L)^2)
+def test_rear_axle_offtracking_uses_half_wheelbase_follow_point():
   kappa = 0.1
   wheelbase = 3.45
+  L_eff = wheelbase * REAR_AXLE_OFFTRACKING_FOLLOW_FRAC
   got = compensate_rear_axle_offtracking(kappa, wheelbase)
-  assert got == pytest.approx(kappa / math.sqrt(1.0 + (kappa * wheelbase) ** 2))
-  assert got == pytest.approx(1.0 / math.sqrt((1.0 / kappa) ** 2 + wheelbase ** 2))
+  assert REAR_AXLE_OFFTRACKING_FOLLOW_FRAC == 0.5
+  assert got == pytest.approx(kappa / math.sqrt(1.0 + (kappa * L_eff) ** 2))
+  assert got == pytest.approx(1.0 / math.sqrt((1.0 / kappa) ** 2 + L_eff ** 2))
+  full = compensate_rear_axle_offtracking(kappa, wheelbase, follow_frac=1.0)
+  assert abs(got) > abs(full)
 
 
 def test_rear_axle_offtracking_never_tightens_and_keeps_sign():
