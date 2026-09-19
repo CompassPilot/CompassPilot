@@ -22,12 +22,17 @@ def smooth_value(val, prev_val, tau, dt=DT_MDL):
   alpha = 1 - np.exp(-dt/tau) if tau > 0 else 1
   return alpha * val + (1 - alpha) * prev_val
 
-def compensate_rear_axle_offtracking(curvature: float, wheelbase: float) -> float:
-  # Command front-axle curvature so the rear axle follows the given path.
-  # Low-speed bicycle model: R_front = sqrt(R^2 + L^2) => k' = k / sqrt(1 + (k L)^2).
-  if wheelbase <= 0.0:
+REAR_AXLE_OFFTRACKING_FOLLOW_FRAC = 0.5
+
+
+def compensate_rear_axle_offtracking(curvature: float, wheelbase: float,
+                                     follow_frac: float = REAR_AXLE_OFFTRACKING_FOLLOW_FRAC) -> float:
+  # Command front-axle curvature so a point follow_frac*L behind the front tracks the path.
+  # R_front = sqrt(R^2 + L_eff^2) => k' = k / sqrt(1 + (k L_eff)^2).
+  L_eff = wheelbase * follow_frac
+  if L_eff <= 0.0:
     return float(curvature)
-  kl = curvature * wheelbase
+  kl = curvature * L_eff
   return float(curvature / np.sqrt(1.0 + kl * kl))
 
 

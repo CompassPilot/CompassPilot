@@ -798,8 +798,8 @@ class Controls:
           jerk_factor = self.lc_arrest_jerk_factor + rise_alpha * (jerk_factor - self.lc_arrest_jerk_factor)
       self.lc_arrest_jerk_factor = jerk_factor
 
-    # R1T: model path is a camera/front path. Command the front wider so the rear
-    # axle tracks that path (R_front = sqrt(R^2 + L^2)).
+    # R1T: widen the front path so a mid-wheelbase point tracks the model (half of
+    # full rear-axle follow).
     if self.compensate_r1t_offtracking and CC.latActive:
       new_desired_curvature = compensate_rear_axle_offtracking(new_desired_curvature, self.CP.wheelbase)
 
