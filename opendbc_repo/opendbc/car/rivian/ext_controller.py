@@ -86,14 +86,14 @@ class _RateBudget:
     return cmd_oldest - budget, cmd_oldest + budget
 
 
-def get_safety_CP():
+def get_safety_CP(candidate=CAR.RIVIAN_R1S_GEN1):
   from opendbc.car.rivian.interface import CarInterface
-  return CarInterface.get_non_essential_params(CAR.RIVIAN_R1_GEN1)
+  return CarInterface.get_non_essential_params(candidate)
 
 
 class ExternalController:
   def __init__(self, CP):
-    self.VM_safety = VehicleModel(get_safety_CP())
+    self.VM_safety = VehicleModel(get_safety_CP(CP.carFingerprint))
     self.gen2 = bool(CP.flags & RivianFlags.GEN2)
     self.angle_harness = bool(CP.flags & RivianFlags.ANGLE_HARNESS)
 

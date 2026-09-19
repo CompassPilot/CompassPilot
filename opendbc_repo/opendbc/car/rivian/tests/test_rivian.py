@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from opendbc.can import CANPacker
-from opendbc.car import Bus, structs
+from opendbc.car import STD_CARGO_KG, Bus, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.docs_definitions import CarHarness
 from opendbc.car.rivian import carcontroller as rivian_carcontroller
@@ -21,17 +21,22 @@ from opendbc.car.rivian.riviancan import create_wheel_touch
 from opendbc.car.rivian.toi_controller import (TOI_ACK_FRAMES, TOI_MAX_ANGLE_FRAMES, TOI_RECOVERY_TIMEOUT_FRAMES,
                                                ToiController, ToiState)
 from opendbc.car.rivian.values import (CAR, FW_QUERY_CONFIG, CarControllerParams, ModelLine, ModelYear,
-                                       RIVIAN_FW_VERSION_REGEX, RivianFlags, RivianSafetyFlags, WMI)
+                                       R1S_SPECS, R1T_SPECS, RIVIAN_FW_VERSION_REGEX, RivianFlags, RivianSafetyFlags,
+                                       WMI)
+
+
+R1T_VIN = "7FCT00000N0000000"
+R1S_VIN = "7PDS00000N0000000"
 
 
 class TestRivian:
   @staticmethod
-  def _car_params(bus_one_messages=(), alpha_long=False, gen2=False):
+  def _car_params(bus_one_messages=(), alpha_long=False, gen2=False, candidate=CAR.RIVIAN_R1S_GEN1):
     fingerprint = {bus: {} for bus in range(8)}
     if not gen2:
       fingerprint[0][0x321] = 8
     fingerprint[1] = {address: 8 for address in bus_one_messages}
-    return CarInterface.get_params(CAR.RIVIAN_R1_GEN1, fingerprint, [], alpha_long, False, False, SimpleNamespace())
+    return CarInterface.get_params(candidate, fingerprint, [], alpha_long, False, False, SimpleNamespace())
 
   def test_base_harness_remains_torque_capable(self):
     params = self._car_params()
@@ -76,6 +81,63 @@ class TestRivian:
     assert math.isclose(params.steerActuatorDelay, 0.15, abs_tol=1e-6)
     assert not params.steerAtStandstill
     assert params.steerControlType == structs.CarParams.SteerControlType.torque
+
+  def test_r1s_platform_uses_suv_geometry(self):
+    params = self._car_params()
+
+    assert params.carFingerprint == CAR.RIVIAN_R1S_GEN1
+    assert math.isclose(params.wheelbase, R1S_SPECS.wheelbase, abs_tol=1e-6)
+    assert math.isclose(params.mass, R1S_SPECS.mass + STD_CARGO_KG, abs_tol=1e-6)
+    assert not params.safetyConfigs[0].safetyParam & RivianSafetyFlags.R1T
+
+  def test_r1t_platform_uses_truck_geometry(self):
+    r1s = self._car_params()
+    r1t = self._car_params(candidate=CAR.RIVIAN_R1T_GEN1)
+
+    assert r1t.carFingerprint == CAR.RIVIAN_R1T_GEN1
+    assert math.isclose(r1t.wheelbase, R1T_SPECS.wheelbase, abs_tol=1e-6)
+    assert math.isclose(r1t.mass, R1T_SPECS.mass + STD_CARGO_KG, abs_tol=1e-6)
+    assert math.isclose(r1t.centerToFront, r1t.wheelbase * R1T_SPECS.centerToFrontRatio, abs_tol=1e-6)
+    assert r1t.safetyConfigs[0].safetyParam & RivianSafetyFlags.R1T
+    assert r1t.rotationalInertia > r1s.rotationalInertia
+
+  def test_vin_fuzzy_match_selects_body_style(self):
+    assert FW_QUERY_CONFIG.match_fw_to_car_fuzzy({}, R1T_VIN, FW_VERSIONS) == {CAR.RIVIAN_R1T_GEN1}
+    assert FW_QUERY_CONFIG.match_fw_to_car_fuzzy({}, R1S_VIN, FW_VERSIONS) == {CAR.RIVIAN_R1S_GEN1}
+    assert FW_QUERY_CONFIG.match_fw_to_car_fuzzy({}, "00000000000000000", FW_VERSIONS) == {CAR.RIVIAN_R1S_GEN1}
+
+  def test_r1t_angle_safety_model_uses_truck_wheelbase(self):
+    controller = ExternalController(self._car_params((0x1310,), candidate=CAR.RIVIAN_R1T_GEN1))
+    assert math.isclose(controller.VM_safety.l, R1T_SPECS.wheelbase, abs_tol=1e-6)
+
+  def test_r1t_torque_safety_model_uses_truck_wheelbase(self):
+    controller = ExternalController(self._car_params(candidate=CAR.RIVIAN_R1T_GEN1))
+    assert math.isclose(controller.VM_safety.l, R1T_SPECS.wheelbase, abs_tol=1e-6)
+
+  def test_r1t_safety_flag_is_mirrored_to_panda(self):
+    params = self._car_params((0x1310,), candidate=CAR.RIVIAN_R1T_GEN1)
+    toggles = SimpleNamespace(
+      always_on_lateral=False,
+      aol_brake_behavior=1,
+      aol_startup_enabled=True,
+      rivian_half_up_stalk_aol_toggle=True,
+    )
+
+    starpilot_params = CarInterface.get_starpilot_params(
+      params.carFingerprint, {bus: {} for bus in range(8)}, [], params, toggles,
+    )
+
+    assert params.safetyConfigs[0].safetyParam & RivianSafetyFlags.R1T
+    assert starpilot_params.safetyConfigs[-1].safetyParam & RivianSafetyFlags.R1T
+
+  def test_r1t_composes_with_gen2_and_angle_harness(self):
+    params = self._car_params((0x1310,), gen2=True, candidate=CAR.RIVIAN_R1T_GEN1)
+
+    assert params.flags & RivianFlags.GEN2
+    assert params.flags & RivianFlags.ANGLE_HARNESS
+    assert params.safetyConfigs[0].safetyParam & RivianSafetyFlags.ANGLE_CONTROL
+    assert params.safetyConfigs[0].safetyParam & RivianSafetyFlags.R1T
+    assert math.isclose(params.wheelbase, R1T_SPECS.wheelbase, abs_tol=1e-6)
 
   def test_gen2_is_detected_without_enabling_harness_capabilities(self):
     params = self._car_params(gen2=True)
@@ -169,7 +231,7 @@ class TestRivian:
     assert limited == pytest.approx(77.5)
 
   def test_gen1_docs_use_rivian_a_and_gen2_uses_rivian_b(self):
-    docs = CAR.RIVIAN_R1_GEN1.config.car_docs
+    docs = [doc for platform in CAR for doc in platform.config.car_docs]
     gen1_docs = [doc for doc in docs if "2022-24" in doc.name]
     gen2_docs = [doc for doc in docs if "2025" in doc.name]
 
@@ -205,7 +267,7 @@ class TestRivian:
     )
 
     starpilot_params = CarInterface.get_starpilot_params(
-      CAR.RIVIAN_R1_GEN1, {bus: {} for bus in range(8)}, [], params, toggles,
+      params.carFingerprint, {bus: {} for bus in range(8)}, [], params, toggles,
     )
     safety_param = starpilot_params.safetyConfigs[-1].safetyParam
 
@@ -224,7 +286,7 @@ class TestRivian:
     )
 
     starpilot_params = CarInterface.get_starpilot_params(
-      CAR.RIVIAN_R1_GEN1, {bus: {} for bus in range(8)}, [], params, toggles,
+      params.carFingerprint, {bus: {} for bus in range(8)}, [], params, toggles,
     )
     aol_flags = (
       RivianSafetyFlags.AOL_LATERAL |

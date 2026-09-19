@@ -3,6 +3,7 @@
 #include "opendbc/safety/declarations.h"
 
 static bool rivian_angle_control = false;
+static bool rivian_r1t = false;
 static bool rivian_aol_lateral = false;
 static bool rivian_aol_brake_remains_active = false;
 static bool rivian_aol_stalk_toggle = false;
@@ -212,11 +213,18 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
     .frequency = 100U,
   };
 
-  const AngleSteeringParams RIVIAN_ANGLE_STEERING_PARAMS = {
-    .slip_factor = -0.0005445721739802007,
+  const AngleSteeringParams RIVIAN_R1S_ANGLE_STEERING_PARAMS = {
+    .slip_factor = -0.0005445721739802007,  // calc_slip_factor(VM)
     .steer_ratio = 15.2,
     .wheelbase = 3.08,
   };
+  const AngleSteeringParams RIVIAN_R1T_ANGLE_STEERING_PARAMS = {
+    .slip_factor = -0.00048616874521194406,  // calc_slip_factor(VM)
+    .steer_ratio = 15.2,
+    .wheelbase = 3.45,
+  };
+  const AngleSteeringParams angle_steering_params = rivian_r1t ? RIVIAN_R1T_ANGLE_STEERING_PARAMS :
+                                                                 RIVIAN_R1S_ANGLE_STEERING_PARAMS;
 
   const TorqueSteeringLimits RIVIAN_STEERING_LIMITS = {
     .max_torque = 385,
@@ -259,7 +267,7 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
       bool angle_active = GET_BIT(msg, 12U);
       const bool aol_rearmed = rivian_aol_host_rearm(angle_active);
       const bool angle_violation = !rivian_angle_control || steer_angle_cmd_checks_vm(
-        desired_angle, angle_active, RIVIAN_ANGLE_STEERING_LIMITS, RIVIAN_ANGLE_STEERING_PARAMS);
+        desired_angle, angle_active, RIVIAN_ANGLE_STEERING_LIMITS, angle_steering_params);
       if (angle_violation) {
         if (aol_rearmed) {
           lkas_on = false;
@@ -332,7 +340,9 @@ static safety_config rivian_init(uint16_t param) {
   const int FLAG_RIVIAN_AOL_BRAKE_REMAINS_ACTIVE = 8;
   const int FLAG_RIVIAN_AOL_STALK_TOGGLE = 16;
   const int FLAG_RIVIAN_AOL_START_ENABLED = 32;
+  const int FLAG_RIVIAN_R1T = 64;
   rivian_angle_control = GET_FLAG(param, FLAG_RIVIAN_ANGLE_CONTROL);
+  rivian_r1t = GET_FLAG(param, FLAG_RIVIAN_R1T);
   rivian_aol_lateral = GET_FLAG(param, FLAG_RIVIAN_AOL_LATERAL);
   rivian_aol_brake_remains_active = rivian_aol_lateral && GET_FLAG(param, FLAG_RIVIAN_AOL_BRAKE_REMAINS_ACTIVE);
   rivian_aol_stalk_toggle = rivian_aol_lateral && GET_FLAG(param, FLAG_RIVIAN_AOL_STALK_TOGGLE);

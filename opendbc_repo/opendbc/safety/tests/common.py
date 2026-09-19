@@ -1117,7 +1117,7 @@ class SafetyTest(SafetyTestBase):
               tx = list(filter(lambda m: m[0] not in [0x160, ], tx))
 
             # Rivian and Hyundai angle-control safety modes intentionally share these CAN address/bus pairs.
-            rivian_angle_tests = {'TestRivianAngleSafety', 'TestRivianAngleLongitudinalSafety'}
+            rivian_angle_tests = {'TestRivianAngleSafety', 'TestRivianAngleSafetyR1T', 'TestRivianAngleLongitudinalSafety'}
             hyundai_alt_angle_test = 'TestHyundaiCanfdLKASteeringAltAngleLongEV'
             if ((current_test in rivian_angle_tests and attr == hyundai_alt_angle_test) or
                 (attr in rivian_angle_tests and current_test == hyundai_alt_angle_test)):

@@ -46,10 +46,11 @@ def _get_interface_names() -> dict[str, list[str]]:
 interface_names = _get_interface_names()
 interfaces = load_interfaces(interface_names)
 
-# Legacy Bolt rename migration. Keep here to prevent force-fingerprint
+# Legacy platform rename migration. Keep here to prevent force-fingerprint
 # params from selecting a removed platform name and crashing detection.
 LEGACY_FORCED_CANDIDATE_MAP = {
   "CHEVROLET_BOLT_CC_2019_2021": "CHEVROLET_BOLT_CC_2018_2021",
+  "RIVIAN_R1_GEN1": "RIVIAN_R1S_GEN1",
 }
 
 GM_CANDIDATE_PREFIXES = ("CHEVROLET_", "GMC_", "CADILLAC_", "BUICK_", "HOLDEN_")
