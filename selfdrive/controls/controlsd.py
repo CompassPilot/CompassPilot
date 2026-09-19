@@ -21,6 +21,7 @@ from opendbc.car.vehicle_model import VehicleModel
 from openpilot.selfdrive.controls.lib.drive_helpers import (
   MAX_LATERAL_JERK,
   clip_curvature,
+  compensate_rear_axle_offtracking,
   get_kona_non_scc_lateral_active,
   get_lateral_active,
   update_lateral_fault_latch,
@@ -435,8 +436,10 @@ class Controls:
 
     self.LaC_angle = None
     self.angle_steering = False
+    self.compensate_r1t_offtracking = False
     if self.CP.brand == "rivian":
-      from opendbc.car.rivian.values import RivianFlags
+      from opendbc.car.rivian.values import CAR as RIVIAN_CAR, RivianFlags
+      self.compensate_r1t_offtracking = self.CP.carFingerprint == RIVIAN_CAR.RIVIAN_R1T_GEN1
       if self.CP.flags & RivianFlags.ANGLE_HARNESS:
         self.LaC_angle = LatControlAngle(self.CP, self.CI, DT_CTRL)
 
@@ -794,6 +797,11 @@ class Controls:
           rise_alpha = 1.0 - math.exp(-DT_CTRL / LANE_CHANGE_ARREST_RISE_TAU)
           jerk_factor = self.lc_arrest_jerk_factor + rise_alpha * (jerk_factor - self.lc_arrest_jerk_factor)
       self.lc_arrest_jerk_factor = jerk_factor
+
+    # R1T: model path is a camera/front path. Command the front wider so the rear
+    # axle tracks that path (R_front = sqrt(R^2 + L^2)).
+    if self.compensate_r1t_offtracking and CC.latActive:
+      new_desired_curvature = compensate_rear_axle_offtracking(new_desired_curvature, self.CP.wheelbase)
 
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll,
                                                                jerk_factor)
