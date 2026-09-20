@@ -22,7 +22,7 @@ def smooth_value(val, prev_val, tau, dt=DT_MDL):
   alpha = 1 - np.exp(-dt/tau) if tau > 0 else 1
   return alpha * val + (1 - alpha) * prev_val
 
-REAR_AXLE_OFFTRACKING_FOLLOW_FRAC = 0.15
+REAR_AXLE_OFFTRACKING_FOLLOW_FRAC = 0.25
 
 
 def compensate_rear_axle_offtracking(curvature: float, wheelbase: float,
