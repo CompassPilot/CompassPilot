@@ -68,16 +68,17 @@ def test_rear_axle_offtracking_leaves_straight_and_highway_alone():
   assert abs(highway - 0.01) < 6e-4
 
 
-def test_rear_axle_offtracking_uses_half_wheelbase_follow_point():
+def test_rear_axle_offtracking_uses_partial_wheelbase_follow_point():
   kappa = 0.1
   wheelbase = 3.45
   L_eff = wheelbase * REAR_AXLE_OFFTRACKING_FOLLOW_FRAC
   got = compensate_rear_axle_offtracking(kappa, wheelbase)
-  assert REAR_AXLE_OFFTRACKING_FOLLOW_FRAC == 0.5
+  assert REAR_AXLE_OFFTRACKING_FOLLOW_FRAC == 0.15
   assert got == pytest.approx(kappa / math.sqrt(1.0 + (kappa * L_eff) ** 2))
   assert got == pytest.approx(1.0 / math.sqrt((1.0 / kappa) ** 2 + L_eff ** 2))
   full = compensate_rear_axle_offtracking(kappa, wheelbase, follow_frac=1.0)
-  assert abs(got) > abs(full)
+  half = compensate_rear_axle_offtracking(kappa, wheelbase, follow_frac=0.5)
+  assert abs(got) > abs(half) > abs(full)
 
 
 def test_rear_axle_offtracking_never_tightens_and_keeps_sign():
