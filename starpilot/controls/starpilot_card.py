@@ -452,7 +452,10 @@ class StarPilotCard:
           self.aol_startup_pending = False
         if self.controller_aol_override is not None:
           self.always_on_lateral_allowed = self.pacifica_aol_set_seen and self.controller_aol_override
-      elif self.aol_startup_pending and driving_gear and carState.cruiseState.available:
+      elif not carState.cruiseState.available:
+        # Turning main cruise off is an explicit AOL mode-off.
+        self.always_on_lateral_allowed = False
+      elif self.aol_startup_pending and driving_gear:
         self.always_on_lateral_allowed = True
         self.aol_startup_pending = False
 
