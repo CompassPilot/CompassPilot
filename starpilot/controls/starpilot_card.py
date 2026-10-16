@@ -67,6 +67,7 @@ class StarPilotCard:
     self.aol_driving_seen = False
     self.aol_startup_initialized = False
     self.aol_startup_pending = False
+    self.aol_latch_released = False
     self.aol_toggle_counter = self.params_memory.get_int(FAVORITE_ACTION_AOL_COUNTER)
     hyundai_flags = getattr(self.CP, "flags", 0)
     self.kia_forte_non_scc = (
@@ -273,6 +274,7 @@ class StarPilotCard:
     # before the vehicle becomes drive-ready. Toggling it cancels that request.
     self.always_on_lateral_allowed = not (self.always_on_lateral_allowed or self.aol_startup_pending)
     self.aol_startup_pending = False
+    self.aol_latch_released = False
 
   def update(self, carState, starpilotCarState, sm, starpilot_toggles, *, preap_authorized=False, ev6_aol_authorized=False):
     self.ev6_aol_authorized = ev6_aol_authorized
@@ -340,7 +342,8 @@ class StarPilotCard:
     driving_gear = carState.gearShifter not in NON_DRIVING_GEARS
     if not self.aol_startup_initialized:
       self.aol_startup_initialized = True
-      self.aol_startup_pending = aol_configured and aol_startup_enabled
+      # Only the Rivian drive-scoped latch consumes a Start Enabled request.
+      self.aol_startup_pending = rivian_aol and aol_startup_enabled
 
     aol_toggle_counter = self.params_memory.get_int(FAVORITE_ACTION_AOL_COUNTER)
     aol_favorite_toggled = (aol_toggle_counter - self.aol_toggle_counter) % 2 == 1
@@ -376,8 +379,11 @@ class StarPilotCard:
     hyundai_aol_needs_engagement = self.hyundai_aol_needs_engagement and not starpilot_toggles.always_on_lateral_lkas
     aol_button_toggled = False
 
+    main_cruise_aol = starpilot_toggles.always_on_lateral_main and not button_managed_aol
     if aol_favorite_toggled and aol_configured and self.always_on_lateral_set:
       self.toggle_aol_latch()
+      if main_cruise_aol:
+        self.controller_aol_override = self.always_on_lateral_allowed
       aol_button_toggled = True
 
     if hyundai_aol_needs_engagement:
@@ -438,7 +444,6 @@ class StarPilotCard:
     car_fingerprint = getattr(self.CP, "carFingerprint", None)
     pcm_cruise = getattr(self.CP, "pcmCruise", False)
     pacifica_requires_set = pacifica_hybrid_aol_requires_set_press(car_fingerprint, pcm_cruise)
-    main_cruise_aol = starpilot_toggles.always_on_lateral_main and not button_managed_aol
     if main_cruise_aol:
       if pacifica_requires_set:
         # Chrysler Pacifica Hybrid stock ACC can fall back to plain cruise if AOL
@@ -452,12 +457,15 @@ class StarPilotCard:
           self.aol_startup_pending = False
         if self.controller_aol_override is not None:
           self.always_on_lateral_allowed = self.pacifica_aol_set_seen and self.controller_aol_override
-      elif not carState.cruiseState.available:
-        # Turning main cruise off is an explicit AOL mode-off.
-        self.always_on_lateral_allowed = False
-      elif self.aol_startup_pending and driving_gear:
-        self.always_on_lateral_allowed = True
-        self.aol_startup_pending = False
+      else:
+        if cruise_available_changed and carState.cruiseState.available:
+          # Turning main cruise back on is an explicit request to re-arm AOL.
+          self.aol_latch_released = False
+        # AOL follows main cruise unless the driver turned it off, or a brake/gear
+        # disengage released it until the next engagement.
+        self.always_on_lateral_allowed = (carState.cruiseState.available and
+                                          self.controller_aol_override is not False and
+                                          not self.aol_latch_released)
 
     # Rivian uses a dedicated drive-scoped AOL latch. Start Enabled arms it
     # once when the vehicle first becomes drive-ready; Start Off waits for a
@@ -477,6 +485,7 @@ class StarPilotCard:
       self.tesla_aol_brake_disengaged = False
       self.always_on_lateral_allowed = True
       self.aol_startup_pending = False
+      self.aol_latch_released = False
 
     rivian_half_up_pressed = rivian_aol and any(
       be.pressed and be_type == ButtonType.lkas
@@ -496,6 +505,7 @@ class StarPilotCard:
     if aol_configured and (rivian_full_up_pressed or left_driving_gear or (disengage_on_brake and carState.brakePressed)):
       self.always_on_lateral_allowed = False
       self.aol_startup_pending = False
+      self.aol_latch_released = True
 
     self.aol_driving_seen |= driving_gear
 
