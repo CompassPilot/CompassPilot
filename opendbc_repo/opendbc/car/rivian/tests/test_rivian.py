@@ -17,10 +17,11 @@ from opendbc.car.rivian.ext_controller import ExternalController
 from opendbc.car.rivian.fingerprints import FW_VERSIONS
 from opendbc.car.rivian.faults import get_steering_faults
 from opendbc.car.rivian.interface import CarInterface
+from opendbc.car.rivian.radar_interface import RADAR_MSG_COUNT, RADAR_START_ADDR
 from opendbc.car.rivian.riviancan import create_wheel_touch
 from opendbc.car.rivian.toi_controller import (TOI_ACK_FRAMES, TOI_MAX_ANGLE_FRAMES, TOI_RECOVERY_TIMEOUT_FRAMES,
                                                ToiController, ToiState)
-from opendbc.car.rivian.values import (CAR, FW_QUERY_CONFIG, CarControllerParams, ModelLine, ModelYear,
+from opendbc.car.rivian.values import (CAR, DBC, FW_QUERY_CONFIG, CarControllerParams, ModelLine, ModelYear,
                                        R1S_SPECS, R1T_SPECS, RIVIAN_FW_VERSION_REGEX, RivianFlags, RivianSafetyFlags,
                                        WMI)
 
@@ -256,6 +257,32 @@ class TestRivian:
 
     assert msg[0] == 0x321
     assert msg[2] == 2
+
+  def _radar_track_ids(self, states):
+    radar = CarInterface.RadarInterface(self._car_params(bus_one_messages=(0x131A,)))
+    packer = CANPacker(DBC[CAR.RIVIAN_R1S_GEN1][Bus.radar])
+    track_ids = []
+    for frame, state in enumerate(states):
+      track = {"STATE": state, "MODE": 2, "LONG_DIST": 40.0 + frame * 0.1, "REL_SPEED": -1.0}
+      can = [packer.make_can_msg(f"RADAR_TRACK_{RADAR_START_ADDR:x}", 1, track),
+             packer.make_can_msg(f"RADAR_TRACK_{RADAR_START_ADDR + RADAR_MSG_COUNT - 1:x}", 1, {"STATE": 0})]
+      ret = radar.update([(frame * 50_000_000, can)])
+      track_ids.append(ret.points[0].trackId if ret.points else None)
+    return track_ids
+
+  def test_radar_keeps_track_id_while_new_track_is_confirmed(self):
+    # STATE: 1=New, 2=New_updated, 3=Updated, 4=Coasting
+    track_ids = self._radar_track_ids([1, 1, 2, 2, 2, 3, 4, 3])
+
+    assert len(set(track_ids)) == 1
+
+  def test_radar_starts_new_track_when_slot_is_replaced(self):
+    track_ids = self._radar_track_ids([1, 2, 3, 1, 2, 3, 0, 3])
+
+    assert track_ids[:3] == [track_ids[0]] * 3
+    assert track_ids[3:6] == [track_ids[3]] * 3
+    assert track_ids[6] is None
+    assert len({track_ids[0], track_ids[3], track_ids[7]}) == 3
 
   def test_aol_configuration_is_still_mirrored_to_panda(self):
     params = self._car_params((0x1310,))
