@@ -140,6 +140,9 @@ FCW_MIN_CLOSING_SPEED = 0.5
 FCW_MAX_TTC = 4.0
 MODEL_LEAD_TRAJECTORY_MAX_LEAD_BRAKE = 0.5
 MODEL_LEAD_TRAJECTORY_MAX_CLOSING_TTC = 7.0
+MODEL_LEAD_TRAJECTORY_MAX_LEAD_ACCEL = 0.3
+MODEL_LEAD_TRAJECTORY_CATCHUP_GAP_MIN = 5.0
+MODEL_LEAD_TRAJECTORY_CATCHUP_GAP_GAIN = 0.25
 
 
 # Fewer timestamps don't hurt performance and lead to
@@ -156,7 +159,7 @@ COMFORT_BRAKE = 2.5
 STOP_DISTANCE = 6.0
 
 
-def build_model_lead_trajectory(model_lead, radar_lead, v_ego):
+def build_model_lead_trajectory(model_lead, radar_lead, v_ego, t_follow=None):
   """Build a model-predicted lead path while preserving the raw h=0 anchor."""
   if model_lead is None or radar_lead is None or not bool(getattr(radar_lead, "status", False)):
     return None
@@ -190,6 +193,15 @@ def build_model_lead_trajectory(model_lead, radar_lead, v_ego):
   if (raw_lead_brake > MODEL_LEAD_TRAJECTORY_MAX_LEAD_BRAKE or
       (closing_speed > 0.75 and ttc < MODEL_LEAD_TRAJECTORY_MAX_CLOSING_TTC)):
     return None
+
+  # The model horizon underestimates how far an accelerating lead pulls away,
+  # so planning against it holds a gap that is already too large. Once the gap
+  # is well past the desired follow distance, use the raw-lead path to catch up.
+  if float(getattr(radar_lead, "aLeadK", 0.0)) > MODEL_LEAD_TRAJECTORY_MAX_LEAD_ACCEL:
+    t_follow = get_T_FOLLOW() if t_follow is None else t_follow
+    catchup_gap = max(MODEL_LEAD_TRAJECTORY_CATCHUP_GAP_MIN, MODEL_LEAD_TRAJECTORY_CATCHUP_GAP_GAIN * float(v_ego))
+    if raw_d_rel > desired_follow_distance(float(v_ego), raw_v_lead, t_follow) + catchup_gap:
+      return None
 
   # The model contributes future deltas only. This preserves raw lead source
   # selection and keeps the current lead distance/speed safety anchor intact.
@@ -644,7 +656,7 @@ class LongitudinalMpc:
     v_ego = self.x0[1]
     lead_active = lead is not None and lead.status and tracking_lead
     if lead_active:
-      model_lead_xv = build_model_lead_trajectory(model_lead, lead, v_ego)
+      model_lead_xv = build_model_lead_trajectory(model_lead, lead, v_ego, t_follow)
       if model_lead_xv is not None:
         if self.sync_model_lead_filters:
           a_lead = soften_far_radar_lead_accel(

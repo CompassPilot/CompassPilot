@@ -783,6 +783,34 @@ def test_model_lead_trajectory_falls_back_for_urgent_raw_lead(d_rel, v_lead, a_l
   assert build_model_lead_trajectory(model_lead, raw_lead, 20.0) is None
 
 
+@pytest.mark.parametrize("d_rel,a_lead,uses_model", [
+  (25.0, 0.6, False),  # accelerating lead well past the desired gap
+  (15.0, 0.6, True),   # accelerating lead near the desired gap
+  (25.0, 0.2, True),   # steady lead
+])
+def test_model_lead_trajectory_falls_back_to_catch_up_accelerating_lead(d_rel, a_lead, uses_model):
+  raw_lead = make_lead(status=True, d_rel=d_rel, v_lead=21.0, a_lead=a_lead, model_prob=0.99)
+  _, model_lead = make_model_lead()
+
+  trajectory = build_model_lead_trajectory(model_lead, raw_lead, 20.0, t_follow=0.75)
+
+  assert (trajectory is not None) == uses_model
+
+
+def test_model_lead_trajectory_catch_up_respects_follow_distance():
+  raw_lead = make_lead(status=True, d_rel=25.0, v_lead=21.0, a_lead=0.6, model_prob=0.99)
+  _, model_lead = make_model_lead()
+
+  assert build_model_lead_trajectory(model_lead, raw_lead, 20.0, t_follow=0.75) is None
+  assert build_model_lead_trajectory(model_lead, raw_lead, 20.0, t_follow=1.45) is not None
+
+  mpc = LongitudinalMpc()
+  mpc.set_cur_state(20.0, 0.0)
+  model_xv = build_model_lead_trajectory(model_lead, raw_lead, 20.0, t_follow=1.45)
+  np.testing.assert_allclose(mpc.process_lead(raw_lead, t_follow=1.45, model_lead=model_lead), model_xv)
+  assert not np.allclose(mpc.process_lead(raw_lead, t_follow=0.75, model_lead=model_lead), model_xv)
+
+
 def set_model_launch_trajectory(model, *, wait_time: float = 0.6, accel: float = 1.0):
   times = np.asarray(ModelConstants.T_IDXS, dtype=float)
   moving_time = np.maximum(times - wait_time, 0.0)
