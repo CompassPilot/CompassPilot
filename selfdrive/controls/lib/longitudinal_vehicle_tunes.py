@@ -207,7 +207,9 @@ def get_toyota_prius_stopped_lead_obstacle_bias(CP, lead, v_ego):
 
 
 def use_stopped_lead_position(CP):
-  return (
+  # Rivian: without the hold, a braking lead's extrapolated position runs backward after it
+  # stops, so the MPC brakes far harder than the lead's real stopping point needs.
+  return getattr(CP, "brand", "") == "rivian" or (
     getattr(CP, "brand", "") == "toyota" and
     str(getattr(CP, "carFingerprint", "")) == "TOYOTA_COROLLA_TSS2"
   )

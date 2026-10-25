@@ -47,6 +47,7 @@ from openpilot.selfdrive.controls.lib.longitudinal_vehicle_tunes import (
   get_kia_ev9_stopped_lead_obstacle_bias,
   get_rivian_stopped_lead_obstacle_bias,
   get_stopped_lead_obstacle_bias,
+  use_stopped_lead_position,
   get_honda_crv_5g_low_speed_stopped_lead_cap,
   allow_honda_crv_5g_vision_gap_settle,
   is_honda_crv_5g_early_radar_follow_lead,
@@ -228,6 +229,22 @@ def test_rivian_stopped_lead_target_moves_closer_for_radar_leads():
   assert get_rivian_stopped_lead_obstacle_bias(ev9, radar_lead, v_ego=3.0) == pytest.approx(0.0)
   assert get_stopped_lead_obstacle_bias(rivian, radar_lead, v_ego=3.0, mode="acc") == pytest.approx(-1.0)
   assert get_stopped_lead_obstacle_bias(rivian, radar_lead, v_ego=3.0, mode="blended") == pytest.approx(0.0)
+
+
+def test_rivian_holds_braking_lead_at_its_stop_point():
+  rivian = RivianCarInterface.get_non_essential_params(RIVIAN_CAR.RIVIAN_R1T_GEN1)
+  ev9 = HyundaiCarInterface.get_non_essential_params(HYUNDAI_CAR.KIA_EV9)
+  assert use_stopped_lead_position(rivian)
+  assert not use_stopped_lead_position(ev9)
+  assert LongitudinalPlanner(rivian).mpc.hold_stopped_lead_position
+
+  # A lead 37 m ahead at 8.2 m/s braking at -2.25 m/s^2 stops about 15 m further on.
+  args = (37.0, 8.2, -2.25, 1.5)
+  held = LongitudinalMpc.extrapolate_lead(*args, v_ego=20.0, hold_stopped_lead_position=True)
+  unheld = LongitudinalMpc.extrapolate_lead(*args, v_ego=20.0, hold_stopped_lead_position=False)
+  assert np.all(np.diff(held[:, 0]) >= -1e-6)
+  assert held[-1, 0] == pytest.approx(37.0 + 8.2 ** 2 / (2 * 2.25), abs=0.5)
+  assert unheld[-1, 0] < 37.0
 
 
 def test_honda_crv_5g_early_radar_follow_admits_high_closing_centered_lead():
