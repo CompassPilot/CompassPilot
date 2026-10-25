@@ -113,6 +113,13 @@ KIA_EV9_STOPPED_LEAD_MIN_CLOSING_SPEED = 0.15
 KIA_EV9_STOPPED_LEAD_MAX_DISTANCE = 30.0
 KIA_EV9_STOPPED_LEAD_RAMP_DISTANCE = 8.0
 KIA_EV9_STOPPED_LEAD_MAX_LATERAL_OFFSET = 1.75
+RIVIAN_STOPPED_LEAD_OBSTACLE_SHIFT_M = 1.0
+RIVIAN_STOPPED_LEAD_MAX_EGO_SPEED = 6.0
+RIVIAN_STOPPED_LEAD_MAX_SPEED = 0.5
+RIVIAN_STOPPED_LEAD_MIN_CLOSING_SPEED = 0.15
+RIVIAN_STOPPED_LEAD_MAX_DISTANCE = 20.0
+RIVIAN_STOPPED_LEAD_RAMP_DISTANCE = 10.0
+RIVIAN_STOPPED_LEAD_MAX_LATERAL_OFFSET = 1.75
 HONDA_CRV_5G_LOW_SPEED_STOP_MAX_EGO_SPEED = 4.5
 HONDA_CRV_5G_LOW_SPEED_STOP_MAX_LEAD_SPEED = 0.5
 HONDA_CRV_5G_LOW_SPEED_STOP_MIN_MODEL_PROB = 0.99
@@ -361,15 +368,47 @@ def get_kia_ev9_stopped_lead_obstacle_bias(CP, lead, v_ego):
   return float(min(bias, max(distance - 0.5, 0.0)))
 
 
+def get_rivian_stopped_lead_obstacle_bias(CP, lead, v_ego):
+  """Bring the Rivian's radar stopped-lead target closer; the standstill guard ends its stops early."""
+  if (
+    getattr(CP, "brand", "") != "rivian" or
+    lead is None or not bool(getattr(lead, "status", False)) or
+    not bool(getattr(lead, "radar", False)) or
+    float(v_ego) <= 0.0 or float(v_ego) > RIVIAN_STOPPED_LEAD_MAX_EGO_SPEED or
+    float(getattr(lead, "vLead", 0.0)) > RIVIAN_STOPPED_LEAD_MAX_SPEED or
+    abs(float(getattr(lead, "yRel", 0.0))) > RIVIAN_STOPPED_LEAD_MAX_LATERAL_OFFSET
+  ):
+    return 0.0
+
+  distance = float(getattr(lead, "dRel", float("inf")))
+  closing_speed = float(v_ego) - float(getattr(lead, "vLead", 0.0))
+  if (
+    distance <= 0.0 or distance > RIVIAN_STOPPED_LEAD_MAX_DISTANCE or
+    closing_speed < RIVIAN_STOPPED_LEAD_MIN_CLOSING_SPEED
+  ):
+    return 0.0
+
+  strength = np.clip(
+    (RIVIAN_STOPPED_LEAD_MAX_DISTANCE - distance) /
+    (RIVIAN_STOPPED_LEAD_MAX_DISTANCE - RIVIAN_STOPPED_LEAD_RAMP_DISTANCE),
+    0.0, 1.0,
+  )
+  # A negative bias moves the obstacle away, so the planned stop lands closer to the lead.
+  return float(-RIVIAN_STOPPED_LEAD_OBSTACLE_SHIFT_M * strength)
+
+
 def get_stopped_lead_obstacle_bias(CP, lead, v_ego, mode):
   """Dispatch vehicle-specific stopped-lead spacing tweaks for the active mode."""
   mode_bias = 0.0
+  rivian_bias = 0.0
   if mode == "acc":
     mode_bias = max(
       get_toyota_prius_stopped_lead_obstacle_bias(CP, lead, v_ego),
       get_honda_crv_5g_stopped_lead_obstacle_bias(CP, lead, v_ego),
     )
-  return max(mode_bias, get_kia_ev9_stopped_lead_obstacle_bias(CP, lead, v_ego))
+    rivian_bias = get_rivian_stopped_lead_obstacle_bias(CP, lead, v_ego)
+  # The Rivian bias is negative, so it is added instead of folded into the max().
+  return max(mode_bias, get_kia_ev9_stopped_lead_obstacle_bias(CP, lead, v_ego)) + rivian_bias
 
 
 def get_honda_crv_5g_low_speed_stopped_lead_cap(CP, lead, v_ego, accel_min):
@@ -608,7 +647,10 @@ def is_toyota_rav4_tss2_radar_follow_lead(CP, lead, v_ego):
 
 
 def allow_radar_standstill_gap_settle(CP):
-  """Keep the generic stopped-lead gap nudge out of the early RAV4 TSS2 path."""
+  """Keep the generic stopped-lead gap nudge out of the early RAV4 TSS2 and Rivian paths."""
+  if getattr(CP, "brand", "") == "rivian":
+    # Rivian barely moves at the nudge accel, so the nudge turns into a stop-creep-stop cycle.
+    return False
   return not (
     getattr(CP, "brand", "") == "toyota" and
     str(getattr(CP, "carFingerprint", "")) == "TOYOTA_RAV4_TSS2"

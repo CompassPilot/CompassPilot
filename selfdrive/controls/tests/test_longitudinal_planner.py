@@ -15,6 +15,8 @@ from opendbc.car.hyundai.interface import CarInterface as HyundaiCarInterface
 from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR
 from opendbc.car.ford.interface import CarInterface as FordCarInterface
 from opendbc.car.ford.values import CAR as FORD_CAR
+from opendbc.car.rivian.interface import CarInterface as RivianCarInterface
+from opendbc.car.rivian.values import CAR as RIVIAN_CAR
 from opendbc.car.toyota.interface import CarInterface as ToyotaCarInterface
 from opendbc.car.toyota.values import CAR as TOYOTA_CAR
 import openpilot.selfdrive.controls.lib.longitudinal_planner as longitudinal_planner_module
@@ -43,6 +45,7 @@ from openpilot.selfdrive.controls.lib.longitudinal_vehicle_tunes import (
   get_honda_accord_stop_go_accel_cap,
   get_honda_crv_5g_stopped_lead_obstacle_bias,
   get_kia_ev9_stopped_lead_obstacle_bias,
+  get_rivian_stopped_lead_obstacle_bias,
   get_stopped_lead_obstacle_bias,
   get_honda_crv_5g_low_speed_stopped_lead_cap,
   allow_honda_crv_5g_vision_gap_settle,
@@ -209,6 +212,22 @@ def test_kia_ev9_stopped_lead_buffer_is_low_speed_and_vehicle_specific():
   assert get_kia_ev9_stopped_lead_obstacle_bias(
     ev9, make_lead(status=True, d_rel=6.8, v_lead=2.0), v_ego=3.0,
   ) == pytest.approx(0.0)
+
+
+def test_rivian_stopped_lead_target_moves_closer_for_radar_leads():
+  rivian = RivianCarInterface.get_non_essential_params(RIVIAN_CAR.RIVIAN_R1T_GEN1)
+  ev9 = HyundaiCarInterface.get_non_essential_params(HYUNDAI_CAR.KIA_EV9)
+  radar_lead = make_lead(status=True, d_rel=8.0, v_lead=0.0, radar=True)
+
+  assert get_rivian_stopped_lead_obstacle_bias(rivian, radar_lead, v_ego=3.0) == pytest.approx(-1.0)
+  assert get_rivian_stopped_lead_obstacle_bias(rivian, make_lead(status=True, d_rel=15.0, v_lead=0.0, radar=True),
+                                               v_ego=3.0) == pytest.approx(-0.5)
+  assert get_rivian_stopped_lead_obstacle_bias(rivian, make_lead(status=True, d_rel=8.0, v_lead=0.0, model_prob=0.99),
+                                               v_ego=3.0) == pytest.approx(0.0)
+  assert get_rivian_stopped_lead_obstacle_bias(rivian, radar_lead, v_ego=8.0) == pytest.approx(0.0)
+  assert get_rivian_stopped_lead_obstacle_bias(ev9, radar_lead, v_ego=3.0) == pytest.approx(0.0)
+  assert get_stopped_lead_obstacle_bias(rivian, radar_lead, v_ego=3.0, mode="acc") == pytest.approx(-1.0)
+  assert get_stopped_lead_obstacle_bias(rivian, radar_lead, v_ego=3.0, mode="blended") == pytest.approx(0.0)
 
 
 def test_honda_crv_5g_early_radar_follow_admits_high_closing_centered_lead():
@@ -2742,6 +2761,31 @@ def test_rav4_tss2_does_not_release_a_stopped_lead_for_gap_settle(model_version)
     experimental_mode=True,
     tracking_lead=False,
     lead_one=make_lead(status=True, d_rel=6.4, v_lead=0.0, a_lead=0.0, radar=True, model_prob=1.0),
+  )
+  sm["carState"].standstill = True
+  sm["controlsState"].longControlState = LongCtrlState.stopping
+  sm["modelV2"].action.shouldStop = True
+
+  frames = int(round(longitudinal_planner_module.RADAR_STANDSTILL_GAP_SETTLE_CONFIRM_TIME / planner.dt)) + 2
+  for _ in range(max(frames, 1)):
+    planner.update(sm, make_toggles(model_version))
+
+  assert not allow_radar_standstill_gap_settle(CP)
+  assert not planner.radar_standstill_gap_settle_active
+  assert planner.output_should_stop
+
+
+@pytest.mark.parametrize("model_version", ["v11", "v12", "v13", "v14", "v15"])
+def test_rivian_does_not_release_a_stopped_lead_for_gap_settle(model_version):
+  CP = RivianCarInterface.get_non_essential_params(RIVIAN_CAR.RIVIAN_R1T_GEN1)
+  planner = LongitudinalPlanner(CP, init_v=0.0)
+  sm = make_sm(
+    0.0,
+    desired_accel=-0.12,
+    min_accel=-0.5,
+    experimental_mode=True,
+    tracking_lead=False,
+    lead_one=make_lead(status=True, d_rel=6.6, v_lead=0.0, a_lead=0.0, radar=True, model_prob=1.0),
   )
   sm["carState"].standstill = True
   sm["controlsState"].longControlState = LongCtrlState.stopping
