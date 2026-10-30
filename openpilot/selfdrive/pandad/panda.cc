@@ -173,6 +173,10 @@ bool Panda::up_to_date() {
         allowed |= std::string(selected) == prefix + suffix + ".bin.signed";
       }
     }
+    // The Rivian wake image is the only alternate admitted for the comma 4 Panda.
+    if (hw_type == cereal::PandaState::PandaType::CUATRO) {
+      allowed |= std::string(selected) == "panda_h7_rivian_wake.bin.signed";
+    }
     if (!allowed) return false;
     filename = selected;
   }

@@ -306,7 +306,7 @@ class TestRuntimePanelActions(unittest.TestCase):
         shown = session.snapshot(ShellMode.SETTINGS)
         self.assertEqual(shown.selected, Destination.DRIVING_CONTROLS)
         self.assertEqual((shown.features.page, shown.features.title, shown.features.parent_title, shown.features.scroll),
-                         (FeaturePage.VEHICLE, "Vehicle Settings", "StarPilot", 0))
+                         (FeaturePage.VEHICLE, "Vehicle Settings", "CompassPilot", 0))
         self.assertIn("LongPitch", [row.key for row in shown.features.rows])
         session._on_compact_destination.assert_not_called()
         view = ShellView.__new__(ShellView)

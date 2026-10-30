@@ -122,15 +122,15 @@ class HomeView:
       description = " / ".join(parts)
     detail = (" " + description if description else "") + (" - " + state.model_label if state.model_label else "")
     size = 48
-    brand = self._measure("StarPilot", FontRole.BRAND, size + 2)
+    brand = self._measure(state.brand, FontRole.BRAND, size + 2)
     model = self._measure(detail, FontRole.MEDIUM, size)
     if brand.width + model.width > header.width:
       size = max(32, int(size * header.width / (brand.width + model.width)))
-      brand = self._measure("StarPilot", FontRole.BRAND, size + 2)
+      brand = self._measure(state.brand, FontRole.BRAND, size + 2)
       model = self._measure(detail, FontRole.MEDIUM, size)
     rendered_width = min(brand.width + model.width, header.width)
     x = header.x + header.width - rendered_width
-    self._label("StarPilot", FontRole.BRAND, size + 2, rl.Rectangle(x, header.y, brand.width, header.height))
+    self._label(state.brand, FontRole.BRAND, size + 2, rl.Rectangle(x, header.y, brand.width, header.height))
     self._label(detail, FontRole.MEDIUM, size, rl.Rectangle(x + brand.width, header.y, model.width, header.height))
     if state.stats is None:
       for rect in (rl.Rectangle(340, 145, 1005, 895), rl.Rectangle(1370, 295, 750, 745)):
@@ -230,7 +230,10 @@ class HomeView:
 
   def _compact(self, state: HomeState):
     white = rl.Color(255, 255, 255, 229)
-    self._text("StarPilot", FontRole.BRAND, 64, 6, 8, white)
+    brand_size = 64
+    while brand_size > 36 and self._measure(state.brand, FontRole.BRAND, brand_size).width > 520:
+      brand_size -= 2
+    self._text(state.brand, FontRole.BRAND, brand_size, 6, 8, white)
     branch_label = "Stable" if state.branch in ("StarPilot", "stable") else state.branch
     version_branch = f"{state.version}  {branch_label}".strip()
     date_width = self._measure(state.commit_date, FontRole.ROMAN, 30).width if state.commit_date else 0

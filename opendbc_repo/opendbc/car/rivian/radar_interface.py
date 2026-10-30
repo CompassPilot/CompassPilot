@@ -22,6 +22,7 @@ class RadarInterface(RadarInterfaceBase):
 
     self.radar_off_can = CP.radarUnavailable
     self.rcp = get_radar_can_parser(CP)
+    self.track_states = {}
 
   def update(self, can_strings):
     if self.radar_off_can or (self.rcp is None):
@@ -57,7 +58,10 @@ class RadarInterface(RadarInterfaceBase):
       valid = valid and msg['MODE'] in (2, 3)
 
       if valid:
-        if addr not in self.pts or msg['STATE'] in (1, 2, 7):
+        # A slot reports New/New_updated for several frames while the radar confirms the same
+        # object, so only start a new track when the slot appears or a mature track is replaced.
+        track_restarted = msg['STATE'] in (1, 2, 7) and self.track_states.get(addr) in (3, 4)
+        if addr not in self.pts or track_restarted:
           self.pts[addr] = structs.RadarData.RadarPoint()
           self.pts[addr].trackId = self.track_id
           self.track_id += 1
@@ -66,8 +70,10 @@ class RadarInterface(RadarInterfaceBase):
         self.pts[addr].dRel = math.cos(azimuth) * msg['LONG_DIST']
         self.pts[addr].yRel = -math.sin(azimuth) * msg['LONG_DIST']
         self.pts[addr].vRel = msg['REL_SPEED']
-      elif addr in self.pts:
-        del self.pts[addr]
+        self.track_states[addr] = msg['STATE']
+      else:
+        self.pts.pop(addr, None)
+        self.track_states.pop(addr, None)
 
     ret.points = list(self.pts.values())
     return ret

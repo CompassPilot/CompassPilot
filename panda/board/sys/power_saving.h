@@ -117,6 +117,20 @@ static void enter_stop_mode(void) {
   // EXTI8:  FDCAN1 RX (PB8)
   // EXTI5:  FDCAN2 RX (PB5)
   // EXTI12: FDCAN3 RX (PD12)
+#ifdef PANDA_RIVIAN_WAKE
+  // Wake only from the harness-selected main CAN path used for ignition
+  // detection. Rivian's secondary CAN path remains active while parked and
+  // would immediately wake the comma 4 again after a timed shutdown.
+  const bool main_can_flipped = harness.status == HARNESS_STATUS_FLIPPED;
+  uint32_t can_exti_line = main_can_flipped ? (1UL << 12) : (1UL << 8);
+  if (main_can_flipped) {
+    set_gpio_mode(GPIOD, 12, MODE_INPUT);
+    register_set(&(SYSCFG->EXTICR[3]), SYSCFG_EXTICR4_EXTI12_PD, 0xFU);
+  } else {
+    set_gpio_mode(GPIOB, 8, MODE_INPUT);
+    register_set(&(SYSCFG->EXTICR[2]), SYSCFG_EXTICR3_EXTI8_PB, 0xFU);
+  }
+#else
   set_gpio_mode(GPIOB, 8, MODE_INPUT);
   register_set(&(SYSCFG->EXTICR[2]), SYSCFG_EXTICR3_EXTI8_PB, 0xFU);
   set_gpio_mode(GPIOB, 5, MODE_INPUT);
@@ -124,6 +138,7 @@ static void enter_stop_mode(void) {
   set_gpio_mode(GPIOD, 12, MODE_INPUT);
   register_set(&(SYSCFG->EXTICR[3]), SYSCFG_EXTICR4_EXTI12_PD, 0xFU);
   uint32_t can_exti_line = (1UL << 8) | (1UL << 5) | (1UL << 12);
+#endif
   register_set_bits(&(EXTI->IMR1), can_exti_line);
   register_set_bits(&(EXTI->FTSR1), can_exti_line);
 

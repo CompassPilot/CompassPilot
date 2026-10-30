@@ -221,6 +221,8 @@ class OnroadState:
   customization: dict = field(default_factory=default_document)
   wheel_acceleration: float | None = None
   wheel_rotation: float = 0.0
+  # Rivian lateral channel tint (angle/torque/driver override) for the wheel icon.
+  rivian_wheel_tint: tuple[int, int, int] | None = None
   torque_source_available: bool = True
   torque_drive_frame: int | None = None
   experimental_action_token: str = ""

@@ -109,7 +109,8 @@ def test_native_long_axis_not_inherited_from_lateral_token():
   assert not rig.native.safety_tx_hook(libsafety_py.make_CANPacket(address, bus, data))
 
 
-@pytest.mark.parametrize('param', [2, 3, 4, 65535])
+# 4 alone is the Extreme-harness AOL profile (see opendbc/safety/tests/test_rivian.py); unknown bits stay unqualified.
+@pytest.mark.parametrize('param', [2, 3, 4 | 128, 65535])
 def test_native_unqualified_aol_profile_has_no_transmit_catalog(param):
   rig = NativeRig()
   rig.native.init_tests()

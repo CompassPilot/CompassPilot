@@ -2,10 +2,20 @@ import copy
 from opendbc.can import CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.interfaces import CarStateBase, V_CRUISE_MAX
+from opendbc.car.rivian.carstate_ext import RivianLongitudinalState
+from opendbc.car.rivian.faults import TOI_FAULT_ALERT_FRAMES, get_steering_faults
 from opendbc.car.rivian.values import DBC, GEAR_MAP, RivianFlags
 from opendbc.car.common.conversions import Conversions as CV
 
 GearShifter = structs.CarState.GearShifter
+
+HARNESS_FLAGS = RivianFlags.ANGLE_HARNESS | RivianFlags.LONGITUDINAL_HARNESS
+
+
+def get_cruise_available(flags: int, acm_feature_status: int) -> bool:
+  # VDM stays unavailable until stock ACC activates, while ACM reports standby
+  # before activation. The longitudinal harness does not depend on stock ACM.
+  return bool(flags & RivianFlags.LONGITUDINAL_HARNESS) or acm_feature_status in (0, 1)
 
 
 class CarState(CarStateBase):
@@ -13,11 +23,22 @@ class CarState(CarStateBase):
     super().__init__(CP)
     self.last_speed = V_CRUISE_MAX
     self.cancel_request = False
-    self.toi_fault = self.toi_active = self.toi_unavailable = False
+    self.base_gen1 = CP.flags == 0
+    self.harness = bool(CP.flags & HARNESS_FLAGS)
+    self.longitudinal_state = RivianLongitudinalState(CP)
+    # Selected at startup by the vehicle preferences owner: AOL and/or the
+    # half-up stalk preference map the stalk detents to button events.
+    self.stalk_controls_enabled = False
 
     self.acm_lka_hba_cmd: dict | None = None
     self.sccm_wheel_touch: dict | None = None
-    self.vdm_adas_status: list[dict] | None = None
+    self.vdm_adas_status: list[dict] = []
+    self.hands_on_level = 0
+    self.eac_status = 0
+    self.eac_error_code = 0
+    self.toi_fault = self.toi_active = self.toi_unavailable = False
+    self.toi_fault_frames = 0
+    self.toi_recovery_failed = False  # set by the controller's EPAS overlay handshake
 
   def update(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
@@ -44,20 +65,35 @@ class CarState(CarStateBase):
     ret.steeringTorque = cp.vl["EPAS_SystemStatus"]["EPAS_TorsionBarTorque"]
     ret.steeringPressed = self.update_steering_pressed(abs(ret.steeringTorque) > 1.0, 5)
 
-    ret.steerFaultTemporary = cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"] != 0
+    self.eac_error_code = int(cp.vl["EPAS_AdasStatus"]["EPAS_EacErrorCode"])
+    self.eac_status = int(cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"])
+    self.hands_on_level = int(cp.vl["EPAS_SystemStatus"]["EPAS_HandsOnLevel"])
+    ret.steerFaultTemporary = self.eac_error_code != 0
 
-    if self.CP.flags == 0:
+    if self.base_gen1 or self.harness:
       self.toi_fault = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0
       self.toi_active = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiActive"] != 0
       self.toi_unavailable = cp.vl["EPAS_SystemStatus"]["H_CAN_EPS_ToiUnavailable"] != 0
 
+    if self.harness:
+      toi_fault = self.toi_fault or self.toi_unavailable
+      self.toi_fault_frames = self.toi_fault_frames + 1 if toi_fault else 0
+      toi_fault_persistent = self.toi_fault_frames >= TOI_FAULT_ALERT_FRAMES
+      ret.steerFaultPermanent, ret.steerFaultTemporary, ret.steeringDisengage = get_steering_faults(
+        bool(self.CP.flags & RivianFlags.ANGLE_HARNESS), toi_fault, toi_fault_persistent,
+        self.eac_status, self.eac_error_code,
+      )
+
+    ret.steerFaultTemporary |= self.toi_recovery_failed
+
     # Cruise state
-    ret.cruiseState.enabled = cp_cam.vl["ACM_Status"]["ACM_FeatureStatus"] == 1
+    acm_feature_status = int(cp_cam.vl["ACM_Status"]["ACM_FeatureStatus"])
+    ret.cruiseState.enabled = acm_feature_status == 1
     # TODO: find cruise set speed on CAN
     ret.cruiseState.speed = self.last_speed * CV.KPH_TO_MS
     if not self.CP.openpilotLongitudinalControl:
       ret.cruiseState.speed = -1
-    ret.cruiseState.available = True  # cp.vl["VDM_AdasSts"]["VDM_AdasInterfaceStatus"] == 1
+    ret.cruiseState.available = get_cruise_available(self.CP.flags, acm_feature_status) if self.harness else True
     ret.cruiseState.standstill = cp.vl["VDM_AdasSts"]["VDM_AdasVehicleHoldStatus"] == 1
 
     # ACM_Status->ACM_FaultSupervisorState normally 1, appears to go to 3 when either:
@@ -86,27 +122,27 @@ class CarState(CarStateBase):
     ret.leftBlinker = cp_adas.vl["IndicatorLights"]["TurnLightLeft"] in (1, 2)
     ret.rightBlinker = cp_adas.vl["IndicatorLights"]["TurnLightRight"] in (1, 2)
 
-    # Blindspot
-    # ret.leftBlindspot = False
-    # ret.rightBlindspot = False
-
     # AEB
     ret.stockAeb = cp_cam.vl["ACM_AebRequest"]["ACM_EnableRequest"] != 0
 
     # AE32 is finalized only for the exact GEN1 owner. Availability cannot
     # arm it; it records the actual ACM standby/ACC states, matching native.
-    if self.CP.flags == 0 and self.CP.alternativeExperience == 32:
-      feature = int(cp_cam.vl["ACM_Status"]["ACM_FeatureStatus"])
-      ret.cruiseState.available = feature in (0, 1)
-      ret.accFaulted |= feature >= 4
+    if self.base_gen1 and self.CP.alternativeExperience == 32:
+      ret.cruiseState.available = acm_feature_status in (0, 1)
+      ret.accFaulted |= acm_feature_status >= 4
       ret.steerFaultTemporary |= self.toi_fault or self.toi_unavailable
-      ret.steerFaultPermanent = cp.vl["EPAS_AdasStatus"]["EPAS_EacStatus"] == 4
+      ret.steerFaultPermanent = self.eac_status == 4
       # UP_1 is the same factual cancel request emitted by riviancan. Do not
       # invent MAIN/LKAS or SET/RES events from availability/cruise changes.
       cancel = cp.vl["VDM_AdasSts"]["VDM_UserAdasRequest"] == 1
       if cancel != self.cancel_request:
         ret.buttonEvents = [structs.CarState.ButtonEvent(type=structs.CarState.ButtonEvent.Type.cancel, pressed=cancel)]
       self.cancel_request = cancel
+
+    # Extreme harness: park-assist bridge buttons, set speed and blind spot, plus
+    # the stalk detents when AOL or the half-up stalk preference owns them.
+    if self.harness:
+      self.longitudinal_state.update(ret, can_parsers, self.stalk_controls_enabled)
 
     # Messages needed by carcontroller
     self.acm_lka_hba_cmd = copy.copy(cp_cam.vl["ACM_lkaHbaCmd"])
@@ -118,10 +154,16 @@ class CarState(CarStateBase):
 
     return ret
 
+  def set_cruise_speed(self, speed: float) -> float:
+    return self.longitudinal_state.set_cruise_speed(speed)
+
   @staticmethod
   def get_can_parsers(CP):
-    return {
+    parsers = {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 0),
       Bus.adas: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 1),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 2),
     }
+    if CP.flags & RivianFlags.LONGITUDINAL_HARNESS:
+      parsers[Bus.alt] = CANParser(DBC[CP.carFingerprint][Bus.alt], [], 1)
+    return parsers

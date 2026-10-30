@@ -5,7 +5,7 @@
   "unchanged_schemas": {
     "openpilot/cereal/deprecated.capnp": "b3aa5c13de40001ed7376cef858500fb003f7698f96131cd0db18d878fa1af0d",
     "openpilot/cereal/include/c++.capnp": "fb306076cd38c27af1aed20fac6395e9a46fbe5b5df6a248b5f1b6845a079c44",
-    "opendbc_repo/opendbc/car/car.capnp": "098a19d69e8d233ac653503b53761a94824f31812757a11a7ded1589fe1e0788",
+    "opendbc_repo/opendbc/car/car.capnp": "5b0110c25e366e0059336299372d693a34f2cdf080e272ace77a4d9315ba45f5",
     "opendbc_repo/opendbc/car/include/c++.capnp": "fb306076cd38c27af1aed20fac6395e9a46fbe5b5df6a248b5f1b6845a079c44",
     "opendbc_repo/opendbc/car/rlog.capnp": "76331a09f36764d08228ba1ed6c03419cc8cdfcc797db98c4d56fab52a6ac050"
   },

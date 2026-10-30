@@ -251,6 +251,10 @@
     "recipe": "panda/SConscript",
     "required_tracked": true
   },
+  "panda/board/obj/bootstub.panda_h7_rivian_wake.bin": {
+    "recipe": "panda/SConscript",
+    "required_tracked": false
+  },
   "panda/board/obj/bootstub.panda_h7_tesla_wake.bin": {
     "recipe": "panda/SConscript",
     "required_tracked": true
@@ -274,6 +278,10 @@
   "panda/board/obj/bootstub.panda_remote_can_ignition_only.bin": {
     "recipe": "panda/SConscript",
     "required_tracked": true
+  },
+  "panda/board/obj/bootstub.panda_rivian_wake.bin": {
+    "recipe": "panda/SConscript",
+    "required_tracked": false
   },
   "panda/board/obj/bootstub.panda_tesla_wake.bin": {
     "recipe": "panda/SConscript",
@@ -319,6 +327,10 @@
     "recipe": "panda/SConscript",
     "required_tracked": true
   },
+  "panda/board/obj/panda_h7_rivian_wake.bin.signed": {
+    "recipe": "panda/SConscript",
+    "required_tracked": false
+  },
   "panda/board/obj/panda_h7_tesla_wake.bin.signed": {
     "recipe": "panda/SConscript",
     "required_tracked": true
@@ -342,6 +354,10 @@
   "panda/board/obj/panda_remote_can_ignition_only.bin.signed": {
     "recipe": "panda/SConscript",
     "required_tracked": true
+  },
+  "panda/board/obj/panda_rivian_wake.bin.signed": {
+    "recipe": "panda/SConscript",
+    "required_tracked": false
   },
   "panda/board/obj/panda_tesla_wake.bin.signed": {
     "recipe": "panda/SConscript",

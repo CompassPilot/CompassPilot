@@ -1,0 +1,111 @@
+"""Rivian Extreme-harness steering and Always On Lateral preferences, selected at startup."""
+from opendbc.car.rivian.harness_aol import HARNESS_FLAGS
+from opendbc.car.rivian.values import RivianFlags
+from openpilot.starpilot.saved_document import commit_exact
+from openpilot.starpilot.saved_source import read_saved
+from openpilot.starpilot.ui.feature_settings_state import FeatureRow
+
+ANGLE_KEYS = ('RivianAngleControl', 'RivianAngleSpeedControl', 'RivianAngleMinimumSpeed')
+AOL_KEYS = ('AOLBrakeBehavior', 'AOLStartupBehavior')
+KEYS = frozenset(ANGLE_KEYS + AOL_KEYS)
+SPEED_CHOICES = tuple(str(speed) for speed in range(10, 65, 5))
+BRAKE_CHOICES = {b'1': 'Remain Active', b'0': 'Disengage'}
+STARTUP_CHOICES = {b'0': 'On Entering Drive', b'1': 'After Engagement'}
+APPLIES = ' Applies after the next startup.'
+
+
+def _choice(table, raw, default):
+  return table.get(default if raw is None else raw)
+
+
+class RivianFeature:
+  def __init__(self, owner):
+    self.params = owner.params
+    self.authority = owner.authority
+    self.vehicle_params = owner.vehicle_params
+    self.vehicle_fingerprint = owner.vehicle_fingerprint
+
+  def capability(self):
+    cp = self.vehicle_params()
+    try:
+      if cp is None or cp.brand != 'rivian' or not int(cp.flags) & HARNESS_FLAGS:
+        return None
+      return (str(cp.carFingerprint), str(cp.brand), int(cp.flags), bool(cp.openpilotLongitudinalControl))
+    except (AttributeError, TypeError, ValueError):
+      return None
+
+  def _metric(self):
+    return read_saved(self.params, 'IsMetric', 8)[0] == b'1'
+
+  def rows(self, parked):
+    capability = self.capability()
+    if capability is None:
+      return ()
+    allowed = parked and self.authority('parked_preferences')
+    saved = {key: read_saved(self.params, key, 8) for key in KEYS}
+    rows = []
+    if capability[2] & RivianFlags.ANGLE_HARNESS:
+      for key, label, reason in (
+        ('RivianAngleControl', 'Angle Steering',
+         'Steer through the Extreme harness angle channel. Driver input hands control back to torque.'),
+        ('RivianAngleSpeedControl', 'Speed-Based Angle Steering',
+         'Use angle steering only above the minimum speed below, and torque at lower speeds.'),
+      ):
+        raw, readable = saved[key]
+        valid = readable and raw in (None, b'0', b'1')
+        enabled_parent = key == 'RivianAngleControl' or saved['RivianAngleControl'][0] == b'1'
+        rows.append(FeatureRow(key, label, ('On' if raw == b'1' else 'Off') if valid else 'Invalid saved choice',
+                               source=raw, choices=('Off', 'On') if valid else (), default_value='Off',
+                               available=allowed and valid and enabled_parent, capability=capability,
+                               reason=(reason + APPLIES) if valid else 'Invalid saved choice'))
+      raw, readable = saved['RivianAngleMinimumSpeed']
+      try:
+        value = '20' if raw is None else str(int(round(float(raw))))
+      except ValueError:
+        value = ''
+      valid = readable and value in SPEED_CHOICES
+      unit = 'km/h' if self._metric() else 'mph'
+      rows.append(FeatureRow('RivianAngleMinimumSpeed', 'Angle Steering Minimum Speed',
+                             value if valid else 'Invalid saved choice', source=raw,
+                             choices=SPEED_CHOICES if valid else (), unit=unit, default_value='20', capability=capability,
+                             available=allowed and valid and saved['RivianAngleSpeedControl'][0] == b'1',
+                             reason=('Speed above which Speed-Based Angle Steering selects angle.' + APPLIES)
+                             if valid else 'Invalid saved choice'))
+    for key, label, table, default, reason in (
+      ('AOLBrakeBehavior', 'AOL While Braking', BRAKE_CHOICES, b'1',
+       'Keep Always On Lateral steering while you brake, or disengage it with the brake pedal.'),
+      ('AOLStartupBehavior', 'AOL Startup', STARTUP_CHOICES, b'0',
+       'Arm Always On Lateral when you shift into Drive, or wait for cruise engagement or the half-up stalk.'),
+    ):
+      raw, readable = saved[key]
+      value = _choice(table, raw, default) if readable else None
+      rows.append(FeatureRow(key, label, value or 'Invalid saved choice', source=raw,
+                             choices=tuple(table.values()) if value else (), default_value=table[default],
+                             available=allowed and value is not None, capability=capability,
+                             reason=(reason + APPLIES) if value else 'Invalid saved choice'))
+    return tuple(rows)
+
+  def _encode(self, key, value):
+    if key in ('RivianAngleControl', 'RivianAngleSpeedControl'):
+      return {'Off': b'0', 'On': b'1'}.get(value)
+    if key == 'RivianAngleMinimumSpeed':
+      return f'{float(value):.1f}'.encode() if value in SPEED_CHOICES else None
+    table = BRAKE_CHOICES if key == 'AOLBrakeBehavior' else STARTUP_CHOICES
+    return next((raw for raw, label in table.items() if label == value), None)
+
+  def apply(self, request):
+    raw = self._encode(request.key, request.value) if request.key in KEYS else None
+    # Boolean rows are confirmed through the shared vehicle-preference question.
+    confirmed = request.confirmation or request.key not in ('RivianAngleControl', 'RivianAngleSpeedControl')
+    if (raw is None or not confirmed or request.related_source is not None or request.direction or
+        (request.expected is not None and (type(request.expected) is not bytes or len(request.expected) > 8))):
+      return False
+
+    def authorized():
+      return (self.authority('parked_preferences') and bool(request.vehicle_fingerprint) and
+              self.vehicle_fingerprint() == request.vehicle_fingerprint and request.capability is not None and
+              self.capability() == request.capability)
+
+    result = commit_exact(self.params, key=request.key, max_bytes=8, expected=request.expected, raw=raw,
+                          authorized=authorized, temp_prefix='.rivian-')
+    return result.committed and result.verified

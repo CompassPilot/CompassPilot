@@ -1,36 +1,55 @@
-"""Rivian BASE GEN1: successful ordinary engagement owns lateral intent."""
+"""Rivian BASE GEN1: successful ordinary engagement owns lateral intent.
+
+Extreme harness cars additionally own a stalk/startup/brake latch mirrored by
+their native safety policy (see opendbc/car/rivian/harness_aol.py).
+"""
 from opendbc.car import structs
+from opendbc.car.rivian import harness_aol
 from opendbc.car.rivian.stock_aol import qualified, temporary_restriction
+from opendbc.car.rivian.values import RivianSafetyFlags
 from openpilot.starpilot.aol.policy import AolVehiclePolicy
 from openpilot.starpilot.aol.intent import AolCardIntent, AOL_TOGGLE, ButtonType
 from openpilot.selfdrive.car.cruise import CRUISE_LONG_PRESS
 
 
 def policy_for(cp):
+  if harness_aol.qualified(cp):
+    return AolVehiclePolicy(intent_supported=True, settings_supported=True, runtime_supported=True,
+      normal_runtime_supported=True, ordinary_axis_ack_required=harness_aol.qualified(cp, marked_only=True),
+      explicit_latch=True, lkas_button_supported=True,
+      safety_param_addition=int(RivianSafetyFlags.AOL_LATERAL), alternative_experience_addition=32)
   admitted = qualified(cp)
   return AolVehiclePolicy(intent_supported=admitted, settings_supported=admitted, runtime_supported=admitted,
     normal_runtime_supported=admitted, ordinary_axis_ack_required=qualified(cp, marked_only=True),
     explicit_latch=admitted, lkas_button_supported=False, alternative_experience_addition=32 if admitted else 0)
 
 
+def marked(cp):
+  return qualified(cp, marked_only=True) or harness_aol.qualified(cp, marked_only=True)
+
+
 def native_profile_supported(model, param):
-  return model == int(structs.CarParams.SafetyModel.rivian) and param in (0, 1)
+  if model != int(structs.CarParams.SafetyModel.rivian):
+    return False
+  profile = int(param) & ~int(RivianSafetyFlags.R1T)
+  return profile in (0, 1) or bool(profile & RivianSafetyFlags.AOL_LATERAL) and profile & ~63 == 0
 
 
 def native_accepts_cp(cp, model, param):
-  return qualified(cp, marked_only=True) and native_profile_supported(model, param) and param == cp.safetyConfigs[0].safetyParam
+  return marked(cp) and native_profile_supported(model, param) and param == cp.safetyConfigs[0].safetyParam
 
 
 def native_latch_rejected(cp, native):
-  return qualified(cp, marked_only=True) and native.requestedLateral and not native.lateralAllowed
+  return marked(cp) and native.requestedLateral and not native.lateralAllowed
 
 
 def retain_on_native_denial(cp, native, state):
+  # Every harness denial is a physical disarm (full-up stalk, brake, gear, ACM).
   return temporary_restriction(cp, state)
 
 
 def ordinary_axis_request_allowed(cp, state):
-  return qualified(cp, marked_only=True) and state.canValid and not state.canTimeout and not state.steerFaultPermanent
+  return marked(cp) and state.canValid and not state.canTimeout and not state.steerFaultPermanent
 
 
 class RivianStockCardIntent(AolCardIntent):
@@ -82,7 +101,61 @@ class RivianStockCardIntent(AolCardIntent):
 
 
 
+class RivianHarnessCardIntent(AolCardIntent):
+  """Mirror the native harness latch so host requests follow the driver's stalk."""
+  observe_stock_engagement = True
+
+  def __init__(self, settings, param):
+    super().__init__(settings, explicit_latch=True, lkas_button_supported=True)
+    self.brake_remains_active = bool(param & RivianSafetyFlags.AOL_BRAKE_REMAINS_ACTIVE)
+    self.stalk_toggle = bool(param & RivianSafetyFlags.AOL_STALK_TOGGLE)
+    self.start_pending = bool(param & RivianSafetyFlags.AOL_START_ENABLED)
+    self.driving_seen = False
+    self.full_up_held = False
+
+  def _disarm(self, reason):
+    self._record_latch_clear(reason)
+    self.allowed_latch = False
+    self.start_pending = False
+    self._withdraw_full_engagement()
+
+  def update(self, CS, **kwargs):
+    state = structs.CarState(**CS.to_dict())
+    events = []
+    for event in CS.buttonEvents:
+      if event.type == ButtonType.altButton2:
+        # Full-up stalk (UP_2) always ends AOL, matching the native latch.
+        if event.pressed and self.allowed_latch:
+          self._disarm('stalk_full_up')
+        self.full_up_held = bool(event.pressed)
+        continue
+      if event.type == ButtonType.lkas and not self.stalk_toggle:
+        # The half-up stalk is assigned to another function.
+        continue
+      events.append(structs.CarState.ButtonEvent(**event.to_dict()))
+    state.buttonEvents = events
+
+    in_drive = CS.gearShifter == structs.CarState.GearShifter.drive
+    if in_drive:
+      self.driving_seen = True
+    elif self.driving_seen and (self.allowed_latch or self.start_pending):
+      self._disarm('left_drive')
+    if CS.brakePressed and not self.brake_remains_active and self.allowed_latch:
+      self._disarm('brake')
+
+    super().update(state.as_reader(), **kwargs)
+
+    if (self.start_pending and in_drive and CS.cruiseState.available and self.settings.enabled and
+        CS.canValid and not CS.canTimeout and not CS.steerFaultPermanent and not self.full_up_held):
+      self.start_pending = False
+      self.allowed_latch = True
+      self.pause_lateral = False
+      self._last_latch_edge_ns = kwargs.get('now_ns', 0)
+
+
 def create_intent(cp, settings):
+  if harness_aol.qualified(cp, marked_only=True) or harness_aol.qualified(cp):
+    return RivianHarnessCardIntent(settings, harness_aol.flags(cp))
   return RivianStockCardIntent(settings)
 
 

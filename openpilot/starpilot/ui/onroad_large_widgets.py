@@ -168,7 +168,7 @@ class SteeringWheelWidget:
     if border.a:
       rl.draw_ring(rl.Vector2(x + radius, y + radius), radius - 3, radius, 0, 360, 64, border)
     feedback = self._feedback.update(state.wheel_acceleration, state.appearance.wheel_pedal_feedback, state.observed_ns, state.drive_frame)
-    color = rl.Color(*feedback, 255)
+    color = rl.Color(*(state.rivian_wheel_tint or feedback), 255)
     rotation = state.wheel_rotation if placement(state.customization, 'large', 'steering_wheel').get('rotate', False) else 0.0
     rotation = rotation if math.isfinite(rotation) else 0.0
     # Keep the upright draw path identical; rotate only the art around its center.

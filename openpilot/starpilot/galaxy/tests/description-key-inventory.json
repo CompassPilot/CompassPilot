@@ -1,4 +1,6 @@
 [
+  "AOLBrakeBehavior",
+  "AOLStartupBehavior",
   "AggressiveCoolingEnabled",
   "AggressiveFollow",
   "AggressiveFollowHigh",
@@ -88,6 +90,10 @@
   "RelaxedJerkSpeedDecrease",
   "RemoteStartBootsComma",
   "ReverseCruise",
+  "RivianAngleControl",
+  "RivianAngleMinimumSpeed",
+  "RivianAngleSpeedControl",
+  "RivianWakeBootsComma",
   "SLCAdvanceHigherSeconds",
   "SLCAdvanceLowerSeconds",
   "SLCConfirmation",

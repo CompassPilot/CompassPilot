@@ -14,13 +14,13 @@
   "files": [
     {
       "file": "Sora-800.fnt",
-      "bytes": 1195,
-      "sha256": "64b968efca08c0c5fb84ce656df51897f2c9f5b7aefb94853b1c92df7ab5fa00"
+      "bytes": 9119,
+      "sha256": "40f5bfa998fece9ea8a76fec0ed544b8cadf0fbe3cb5781bce418df6d5e55bcc"
     },
     {
       "file": "Sora-800.png",
-      "bytes": 15971,
-      "sha256": "17363e57458cd9b779e9b5a0cff5ace532012895ded3c8ddeffb7131868b1ee2"
+      "bytes": 264634,
+      "sha256": "4b7ed5060527e28b16d7901e27c43f4fffb053ec3c81b7aad08f7fa2439f1349"
     }
   ]
 }

@@ -80,6 +80,7 @@ class HomeState:
   metric: bool = False
   temperature_high: bool = False
   jetlink: str = "off"
+  brand: str = "CompassPilot"
 
 
 @dataclass(frozen=True)

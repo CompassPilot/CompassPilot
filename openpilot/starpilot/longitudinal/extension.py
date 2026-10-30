@@ -9,6 +9,7 @@ from openpilot.starpilot.longitudinal.ioniq6_start import Ioniq6StartPolicy, Sta
 from openpilot.starpilot.longitudinal.vehicle_policy import policy_for as vehicle_policy_for, stopping_decel_rate, stopping_policy_for
 from opendbc.car.gm.longitudinal import GMPedalStartPolicy, volt_sng_resume_policy_for
 from opendbc.car.gm.bolt_mode import policy_for as bolt_mode_policy_for
+from opendbc.car.rivian.final_stop import policy_for as rivian_final_stop_for
 
 LongCtrlState = car.CarControl.Actuators.LongControlState
 
@@ -50,6 +51,9 @@ class LongitudinalExtension:
     self.ignore_cruise_standstill = bool(getattr(self.vehicle_policy, "ignore_cruise_standstill", False) or
       CP.autoResumeSng and toyota_resume_supported(CP) or
       getattr(startup_preferences, "toyota_sng", False) and toyota_sng_eligible(CP))
+    # Final-stop shaping only; it owns no start, transition or PID state.
+    self.final_stop = rivian_final_stop_for(CP)
+    self._has_lead = None
 
   def qualify_resume(self, default, *, preferences, inputs):
     if self.resume_policy is None or not preferences.volt_sng:
@@ -72,6 +76,7 @@ class LongitudinalExtension:
 
   def transition(self, native_state, previous_state, active, CS, a_target, should_stop, accel_limits, *,
                  context):
+    self._has_lead = context.has_lead
     start_evidence = context.start_evidence
     gm_start_evidence = context.gm_start_evidence
     vehicle_stop_evidence = context.vehicle_stop_evidence
@@ -105,7 +110,10 @@ class LongitudinalExtension:
     if self.stopping_policy is not None:
       output_accel = self.stopping_policy.stopping_output(output_accel, a_target, should_stop, CS)
     if hasattr(self.vehicle_policy, "stopping_output"):
-      return self.vehicle_policy.stopping_output(output_accel, a_target, should_stop, CS)
+      output_accel = self.vehicle_policy.stopping_output(output_accel, a_target, should_stop, CS)
+    final_stop = getattr(self, "final_stop", None)
+    if final_stop is not None:
+      output_accel = final_stop.apply(output_accel, a_target, should_stop, self._has_lead, CS, LongCtrlState.stopping)
     return output_accel
 
   def starting_output(self, pid, a_target, accel_limits, context):
@@ -157,6 +165,9 @@ class LongitudinalExtension:
       output_accel = self.stopping_policy.shape_output(float(output_accel), a_target, error, CS, last_output)
     if self.bolt_mode is not None:
       output_accel = self.bolt_mode.shape(float(output_accel), last_output)
+    final_stop = getattr(self, "final_stop", None)
+    if final_stop is not None:
+      output_accel = final_stop.apply(output_accel, a_target, should_stop, context.has_lead, CS, LongCtrlState.pid)
     return output_accel
 
 
@@ -164,7 +175,8 @@ def create_extension(cp, startup_preferences=None):
   extension = LongitudinalExtension(cp, startup_preferences)
   if (extension.vehicle_policy is None and extension.toyota_output is None and extension.ioniq6_start is None and
       extension.bolt_mode is None and extension.stopping_policy is None and extension.stopping_decel_rate == 1.0 and
-      not extension.ignore_cruise_standstill and not extension.force_stop_distance_braking):
+      not extension.ignore_cruise_standstill and not extension.force_stop_distance_braking and
+      extension.final_stop is None):
     return None
   return extension
 

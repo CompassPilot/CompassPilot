@@ -376,6 +376,8 @@ def main(demo=False):
   from openpilot.starpilot.car.subaru.smoothing import read_frozen, seconds as subaru_smooth_seconds, filter_action
   subaru_smoothing = read_frozen(CP, params)
   kona_tau = kona_smoothing(CP)
+  from openpilot.starpilot.car.rivian.smoothing import maximum as rivian_smooth_maximum, seconds as rivian_smooth_seconds
+  rivian_smoothing = rivian_smooth_maximum(CP)
 
   st = time.monotonic()
   cloudlog.warning("loading model")
@@ -564,7 +566,7 @@ def main(demo=False):
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
     v_ego = max(sm["carState"].vEgo, 0.)
-    subaru_tau = subaru_smooth_seconds(v_ego, subaru_smoothing)
+    subaru_tau = max(subaru_smooth_seconds(v_ego, subaru_smoothing), rivian_smooth_seconds(v_ego, rivian_smoothing))
     volkswagen_tau = volkswagen_smoothing(CP, receipt_owner.load)
     lat_delay = sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS + subaru_tau + volkswagen_tau + kona_tau
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:

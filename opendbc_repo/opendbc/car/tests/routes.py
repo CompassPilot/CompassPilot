@@ -43,6 +43,8 @@ non_tested_cars = [
   TESLA.TESLA_MODEL_S_PREAP,
   TOYOTA.TOYOTA_MATRIX_RETROFIT,
   VOLVO.VOLVO_V40,
+  # The R1T split shares the R1 routes' firmware; no truck-specific route is recorded yet.
+  RIVIAN.RIVIAN_R1T,
   # These additional source-tested configurations still lack recorded routes.
   *unrecorded_route_gaps,
   GM.CADILLAC_ATS,

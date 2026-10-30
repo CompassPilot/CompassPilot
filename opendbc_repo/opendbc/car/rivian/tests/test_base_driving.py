@@ -154,7 +154,8 @@ def test_upstream_defaults_and_envelope_unchanged(alpha):
   assert rig.cp.safetyConfigs[0].safetyParam == int(alpha)
   assert rig.cp.longitudinalActuatorDelay == pytest.approx(.35)
   assert rig.cp.stopAccel == 0
-  assert CarControllerParams.STEER_MAX_LOOKUP == ([9, 17], [350, 250])
+  # The Rivian four-point envelope lifts mid-speed authority for every Rivian.
+  assert CarControllerParams.STEER_MAX_LOOKUP == ([9, 13, 25, 27], [385, 350, 295, 275])
   assert (CarControllerParams.STEER_DELTA_UP, CarControllerParams.STEER_DELTA_DOWN) == (3, 5)
 
 
