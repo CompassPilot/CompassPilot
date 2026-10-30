@@ -68,7 +68,11 @@ static uint8_t rivian_harness_aol_permission(void) {
   if (rivian_harness_aol_latch && rivian_harness_aol_in_drive && rivian_harness_aol_available) {
     permission = request & 1U;
   }
-  if (rivian_harness_aol_longitudinal && controls_allowed && !brake_pressed && !gas_pressed) {
+  // Gas is an ordinary longitudinal override: get_longitudinal_allowed() still
+  // blocks accel while gas_pressed_prev. Revoking the axis here instead made the
+  // host see an unacknowledged LONG request on every one-pedal gas touch (and
+  // on engaging ACC with the accelerator held), resetting the AOL latch.
+  if (rivian_harness_aol_longitudinal && controls_allowed && !brake_pressed) {
     permission |= request & 2U;
   }
   return permission;

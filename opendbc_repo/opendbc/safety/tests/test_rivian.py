@@ -344,13 +344,14 @@ class TestRivianHarnessAOLSafety(unittest.TestCase):
     self.safety.set_aol_test_heartbeat(True)
     return result
 
-  def _feed(self, gear=4, feature=0, brake=False, user_request=0, eps_state=1, request=1):
+  def _feed(self, gear=4, feature=0, brake=False, user_request=0, eps_state=1, request=1, gas=0):
     self.cnt += 1
     self.safety.set_timer(1_000_000 + self.cnt * 10_000)
     counter = self.cnt % 15
     msgs = (
       ("ESP_Status", 0, {"ESP_Vehicle_Speed": 0, "ESP_Status_Counter": counter, "ESP_Vehicle_Speed_Q": 1}),
-      ("VDM_PropStatus", 0, {"VDM_Prndl_Status": gear, "VDM_PropStatus_Counter": counter, "VDM_VehicleSpeedQ": 1}),
+      ("VDM_PropStatus", 0, {"VDM_Prndl_Status": gear, "VDM_PropStatus_Counter": counter, "VDM_VehicleSpeedQ": 1,
+                             "VDM_AcceleratorPedalPosition": gas}),
       ("iBESP2", 0, {"iBESP2_BrakePedalApplied": brake, "iBESP2_BrakePedalApplied_Q": 1, "iBESP2_AliveCounter": counter}),
       ("EPAS_SystemStatus", 0, {"EPAS_SystemStatus_Counter": counter}),
       ("ACM_Status", 2, {"ACM_FeatureStatus": feature, "ACM_Unkown1": 1, "ACM_Status_Counter": counter}),
@@ -402,6 +403,21 @@ class TestRivianHarnessAOLSafety(unittest.TestCase):
     self.assertEqual(0, self._feed(user_request=2))
     self.assertEqual(1, self._feed())
     self.assertEqual(0, self._feed(feature=4))
+
+  def test_gas_keeps_longitudinal_axis_but_blocks_accel(self):
+    # One-pedal driving touches the accelerator constantly; that is an override,
+    # not a native LONG withdrawal the host would treat as unacknowledged.
+    self.assertEqual(0, self._hooks(RivianSafetyFlags.LONG_CONTROL))
+    self._feed(feature=1, request=3)
+    self.assertEqual(3, self._feed(feature=1, request=3))
+    accel = self.packer.make_can_msg_safety("ACM_longitudinalRequest", 0, {"ACM_AccelerationRequest": 0.5})
+    self.assertTrue(self.safety.safety_tx_hook(accel))
+    self.assertEqual(3, self._feed(feature=1, request=3, gas=20))
+    self.assertFalse(self.safety.safety_tx_hook(accel))
+    self.assertEqual(3, self._feed(feature=1, request=3))
+    self.assertTrue(self.safety.safety_tx_hook(accel))
+    # Brake still withdraws both axes (this profile disarms AOL on brake).
+    self.assertEqual(0, self._feed(feature=1, request=3, brake=True))
 
   def test_eps_shutdown_disarms(self):
     self.assertEqual(0, self._hooks())
