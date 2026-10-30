@@ -2,7 +2,6 @@ from enum import IntEnum
 
 
 TOI_MAX_ANGLE_DEG = 90
-TOI_REARM_ANGLE_DEG = 80
 TOI_MAX_ANGLE_FRAMES = 89
 TOI_ACK_FRAMES = 2
 TOI_RECOVERY_TIMEOUT_FRAMES = 50
@@ -15,7 +14,6 @@ class ToiState(IntEnum):
   REARMING = 3
   PREARMING = 4
   ACTIVATING = 5
-  HIGH_ANGLE_LOCKOUT = 6
 
 
 class ToiController:
@@ -27,10 +25,11 @@ class ToiController:
     self.ack_frames = 0
     self.recovery_frames = 0
     self.recovery_failed = False
+    self.preserve_torque = False
 
   @property
   def recovering(self) -> bool:
-    return self.state in (ToiState.RELEASING, ToiState.REARMING, ToiState.HIGH_ANGLE_LOCKOUT)
+    return self.state in (ToiState.RELEASING, ToiState.REARMING)
 
   def _reset(self) -> None:
     self.state = ToiState.INACTIVE
@@ -38,12 +37,14 @@ class ToiController:
     self.ack_frames = 0
     self.recovery_frames = 0
     self.recovery_failed = False
+    self.preserve_torque = False
 
-  def _start_release(self) -> None:
+  def _start_release(self, preserve_torque: bool = False) -> None:
     self.state = ToiState.RELEASING
     self.high_angle_frames = 0
     self.ack_frames = 0
     self.recovery_frames = 0
+    self.preserve_torque = preserve_torque
 
   def _start_rearm(self) -> None:
     self.state = ToiState.REARMING
@@ -60,11 +61,6 @@ class ToiController:
     self.ack_frames = 0
     self.recovery_frames = 0
 
-  def _start_high_angle_lockout(self) -> None:
-    self.state = ToiState.HIGH_ANGLE_LOCKOUT
-    self.ack_frames = 0
-    self.recovery_frames = 0
-
   def _finish_activation(self) -> None:
     self.state = ToiState.TORQUE
     self.high_angle_frames = 0
@@ -72,11 +68,13 @@ class ToiController:
     self.recovery_frames = 0
     self.recovery_failed = False
 
+  def _allow_torque(self) -> tuple[bool, bool]:
+    self.preserve_torque = False
+    return True, True
+
   def update(self, requested: bool, high_angle: bool, toi_fault: bool,
-             toi_active: bool, toi_unavailable: bool, prearming: bool = False,
-             high_angle_rearm: bool | None = None, hold_high_angle_release: bool = False) -> tuple[bool, bool]:
+             toi_active: bool, toi_unavailable: bool, prearming: bool = False) -> tuple[bool, bool]:
     """Return the request bit and whether non-zero torque may be sent."""
-    high_angle_rearm = not high_angle if high_angle_rearm is None else high_angle_rearm
     if not requested:
       self._reset()
       return False, False
@@ -100,32 +98,24 @@ class ToiController:
       else:
         self.high_angle_frames = self.high_angle_frames + 1 if high_angle else 0
         if self.high_angle_frames > TOI_MAX_ANGLE_FRAMES:
-          self._start_release()
+          # Freeze the limiter through this scheduled release. The wire command
+          # still drops to zero until the EPAS acknowledges.
+          self._start_release(preserve_torque=True)
 
     if self.state == ToiState.RELEASING:
       self.recovery_frames += 1
+      if toi_fault or toi_unavailable:
+        self.preserve_torque = False
       released = not toi_active and not toi_fault and not toi_unavailable
       self.ack_frames = self.ack_frames + 1 if released else 0
       self.recovery_failed |= self.recovery_frames >= TOI_RECOVERY_TIMEOUT_FRAMES
+      if self.recovery_failed:
+        self.preserve_torque = False
       if self.ack_frames >= TOI_ACK_FRAMES:
-        if hold_high_angle_release and not high_angle_rearm:
-          self._start_high_angle_lockout()
-        elif prearming:
+        if prearming:
           self._start_prearm()
         else:
           self._start_rearm()
-      return False, False
-
-    if self.state == ToiState.HIGH_ANGLE_LOCKOUT:
-      if toi_fault or toi_unavailable:
-        self.recovery_frames += 1
-        self.recovery_failed |= self.recovery_frames >= TOI_RECOVERY_TIMEOUT_FRAMES
-      elif not high_angle_rearm:
-        self.recovery_frames = 0
-      elif prearming:
-        self._start_prearm()
-      else:
-        self._start_rearm()
       return False, False
 
     if self.state == ToiState.PREARMING:
@@ -135,9 +125,9 @@ class ToiController:
 
       self.high_angle_frames = self.high_angle_frames + 1 if high_angle else 0
       if self.high_angle_frames > TOI_MAX_ANGLE_FRAMES:
-        self._start_release()
+        self._start_release(preserve_torque=True)
         return False, False
-      return True, True
+      return self._allow_torque()
 
     if self.state == ToiState.ACTIVATING:
       if toi_fault or toi_unavailable:
@@ -157,7 +147,7 @@ class ToiController:
         self.recovery_failed = True
         self._start_release()
         return False, False
-      return True, True
+      return self._allow_torque()
 
     if self.state == ToiState.REARMING:
       if toi_fault or toi_unavailable:
@@ -176,4 +166,4 @@ class ToiController:
         return False, False
       return True, False
 
-    return True, True
+    return self._allow_torque()

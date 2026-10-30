@@ -5,7 +5,10 @@ from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.vehicle_selection import read_selection
 
 
-KEYS = ('RemoteStartBootsComma', 'HKGRemoteStartBootsComma', 'IgnoreIgnitionLine', 'TeslaWakeOnCAN')
+KEYS = ('RemoteStartBootsComma', 'HKGRemoteStartBootsComma', 'IgnoreIgnitionLine', 'TeslaWakeOnCAN', 'RivianWakeBootsComma')
+# Device types whose internal Panda can run each vehicle wake image.
+DEVICE_TYPES = {'RivianWakeBootsComma': ('mici',)}
+DEFAULT_DEVICE_TYPES = ('tici', 'tizi')
 
 
 def supported_keys(cp):
@@ -22,6 +25,9 @@ def supported_keys(cp):
       return ('HKGRemoteStartBootsComma',)
     if cp.brand == 'tesla' and cp.carFingerprint in (TESLA.TESLA_MODEL_3, TESLA.TESLA_MODEL_Y, TESLA.TESLA_MODEL_X):
       return ('TeslaWakeOnCAN',)
+    if cp.brand == 'rivian':
+      # comma 4 wakes from Rivian's main CAN while parked (see PANDA_RIVIAN_WAKE).
+      return ('RivianWakeBootsComma',)
   except (AttributeError, TypeError, ValueError):
     pass
   return ()
@@ -37,10 +43,11 @@ class FirmwareChoice:
   hkg: bool = False
   can_only: bool = False
   tesla: bool = False
+  rivian: bool = False
 
   @property
   def alternate(self):
-    return self.gm or self.hkg or self.can_only or self.tesla
+    return self.gm or self.hkg or self.can_only or self.tesla or self.rivian
 
   def filename(self, app_fn):
     if not self.alternate:
@@ -48,7 +55,9 @@ class FirmwareChoice:
     if app_fn not in ('panda.bin.signed', 'panda_h7.bin.signed'):
       raise ValueError('Unsupported Panda for vehicle wake firmware')
     parts = ['panda_h7' if app_fn == 'panda_h7.bin.signed' else 'panda']
-    if self.tesla:
+    if self.rivian:
+      parts.extend(('rivian', 'wake'))
+    elif self.tesla:
       parts.extend(('tesla', 'wake'))
     elif self.hkg:
       parts.extend(('hkg', 'remote'))
@@ -63,7 +72,7 @@ def resolve(cp, sources):
   supported = supported_keys(cp)
   enabled = {key for key, raw, readable in sources if readable and raw == b'1' and key in supported}
   return FirmwareChoice('RemoteStartBootsComma' in enabled, 'HKGRemoteStartBootsComma' in enabled,
-                        'IgnoreIgnitionLine' in enabled, 'TeslaWakeOnCAN' in enabled)
+                        'IgnoreIgnitionLine' in enabled, 'TeslaWakeOnCAN' in enabled, 'RivianWakeBootsComma' in enabled)
 
 
 def startup_choice(params):

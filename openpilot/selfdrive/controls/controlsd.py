@@ -146,6 +146,10 @@ class Controls:
     self.LaC = create_lateral_controller(
       self.CP, self.CI, DT_CTRL, mode=self.lateral_controller_selection.mode, turn_assist=self.vehicle_startup_preferences.turn_assist
     )
+    self.rivian_lateral = None
+    if self.CP.brand == "rivian":
+      from openpilot.starpilot.car.rivian.lateral import RivianLateral
+      self.rivian_lateral = RivianLateral(self.CP, self.CI, DT_CTRL)
     if isinstance(self.LaC, LatControlTorque):
       # Only the actual startup owner reads configuration; replay clones stay pure.
       if manual_effects is not None and manual_effects.profile.context[1] != str(self.LaC.controller_mode):
@@ -550,6 +554,10 @@ class Controls:
       turn_assist=assist,
     )
     new_desired_curvature = limit_rate(CS.vEgo, previous_curvature, new_desired_curvature, factor)
+    rivian_lateral = getattr(self, 'rivian_lateral', None)
+    if rivian_lateral is not None:
+      # R1T: widen the front path so a point behind the front tracks the model.
+      new_desired_curvature = rivian_lateral.desired_curvature(new_desired_curvature, CC.latActive)
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, previous_curvature, new_desired_curvature, lp.roll)
     if self.last_lane_centering_result is not None and self.last_lane_centering_result.correction != 0.0:
       baseline_curvature, _ = clip_curvature(CS.vEgo, previous_curvature, limit_rate(CS.vEgo, previous_curvature, lane_base_curvature, factor), lp.roll)
@@ -560,9 +568,14 @@ class Controls:
       self.lane_centering_applied = self.desired_curvature - baseline_curvature
     from openpilot.starpilot.car.subaru.smoothing import seconds as subaru_smooth_seconds, control_maximum
 
-    lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS + subaru_smooth_seconds(CS.vEgo, control_maximum(self))
+    from openpilot.starpilot.car.rivian.smoothing import maximum as rivian_smooth_maximum, seconds as rivian_smooth_seconds
+    smooth_seconds = max(subaru_smooth_seconds(CS.vEgo, control_maximum(self)),
+                         rivian_smooth_seconds(CS.vEgo, rivian_smooth_maximum(self.CP)))
+    lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS + smooth_seconds
 
     actuators.curvature = self.desired_curvature
+    rivian_angle_steering = (rivian_lateral is not None and
+                             rivian_lateral.observe_output(CC.latActive, self.sm['carOutput']))
     if cycle_timing is not None:
       cycle_timing.mark()
     automatic = getattr(self, 'global_learning', None)
@@ -584,6 +597,8 @@ class Controls:
             and not any(str(button.type) == 'cancel' for button in CS.buttonEvents)
             and not any(event.softDisable or event.immediateDisable for event in self.sm['onroadEvents'])
             and not self.sm['driverMonitoringState'].noResponseForceDecel
+            # The Rivian angle channel bypasses the torque controller being learned.
+            and not rivian_angle_steering
           ),
           controller=self.LaC,
           native_required=bool(self.aol_replay or getattr(self, 'ordinary_axis_ack_required', False)),
@@ -606,14 +621,20 @@ class Controls:
         automatic = None
     if cycle_timing is not None:
       cycle_timing.mark()
+    # Freeze the torque controller while the Rivian EPS follows the angle channel.
     steer, lateral_output, lac_log = self.LaC.update(
-      CC.latActive, CS, self.VM, lp, self.steer_limited_by_safety, self.desired_curvature, curvature_limited, lat_delay
+      CC.latActive, CS, self.VM, lp, self.steer_limited_by_safety or rivian_angle_steering, self.desired_curvature, curvature_limited, lat_delay
     )
     actuators.torque = float(steer)
     if self.CP.steerControlType == car.CarParams.SteerControlType.curvature:
       actuators.curvature = float(lateral_output)
     else:
       actuators.steeringAngleDeg = float(lateral_output)
+    if rivian_lateral is not None:
+      angle_output = rivian_lateral.update_angle(CC.latActive, CS, self.VM, lp, self.steer_limited_by_safety,
+                                                      self.desired_curvature, curvature_limited, lat_delay)
+      if angle_output is not None:
+        actuators.steeringAngleDeg = angle_output
     # Ensure no NaNs/Infs
     for p in ACTUATOR_FIELDS:
       attr = getattr(actuators, p)
@@ -724,7 +745,12 @@ class Controls:
       hudControl.rightLaneDepart = self.sm['driverAssistance'].rightLaneDeparture
 
     feedback_input_limited = self.steer_limited_by_safety
-    if CC.latActive:
+    rivian_lateral = getattr(self, 'rivian_lateral', None)
+    rivian_limited = (rivian_lateral.steer_limited(CC.actuators, self.sm['carOutput'])
+                      if rivian_lateral is not None and CC.latActive else None)
+    if CC.latActive and rivian_limited is not None:
+      self.steer_limited_by_safety = rivian_limited
+    elif CC.latActive:
       CO = self.sm['carOutput']
       if self.CP.steerControlType == car.CarParams.SteerControlType.angle:
         from openpilot.starpilot.car.tesla.coop_saturation import is_angle_steering_limited
@@ -765,7 +791,12 @@ class Controls:
     CC.driverMonitoringEscalation = cs.forceDecel
 
     lat_tuning = self.CP.lateralTuning.which()
-    if self.CP.steerControlType == car.CarParams.SteerControlType.angle:
+    rivian_lateral = getattr(self, 'rivian_lateral', None)
+    rivian_angle_log = rivian_lateral.angle_log if rivian_lateral is not None else None
+    if rivian_angle_log is not None:
+      # Rivian Extreme keeps SteerControlType.torque while live angle mode is on.
+      cs.lateralControlState.angleState = rivian_angle_log
+    elif self.CP.steerControlType == car.CarParams.SteerControlType.angle:
       cs.lateralControlState.angleState = lac_log
     elif self.CP.steerControlType == car.CarParams.SteerControlType.curvature:
       cs.lateralControlState.curvatureState = lac_log

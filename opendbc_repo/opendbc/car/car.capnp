@@ -377,12 +377,20 @@ struct CarControl {
     brake @1: Float32; # [0.0, 1.0]
     torqueOutputCan @8: Float32;   # value sent over can to the car
     speed @6: Float32;  # m/s
+    lateralControlMode @9: LateralControlMode;  # active lateral channel for hybrid torque/angle EPS ports
 
     enum LongControlState @0xe40f3a917d908282{
       off @0;
       pid @1;
       stopping @2;
       starting @3;
+    }
+
+    enum LateralControlMode {
+      inactive @0;
+      torque @1;
+      angle @2;
+      torqueRecovering @3;
     }
   }
 

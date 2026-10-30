@@ -12,6 +12,7 @@ from openpilot.common.params import Params
 from openpilot.common.hardware import HARDWARE
 from openpilot.common.swaglog import cloudlog
 from openpilot.starpilot.panda_wake import FirmwareChoice, firmware_path, startup_choice
+from openpilot.selfdrive.pandad.rivian_long_flasher import prepare_rivian_bridge
 
 
 DEFAULT_FIRMWARE_CHOICE = FirmwareChoice()
@@ -23,8 +24,14 @@ def get_expected_signature(mcu_type: McuType, choice: FirmwareChoice = DEFAULT_F
 
 def flash_panda(panda_serial: str, choice: FirmwareChoice = DEFAULT_FIRMWARE_CHOICE):
   panda = Panda(panda_serial)
-  if choice.alternate and panda.get_type() not in (Panda.HW_TYPE_DOS, Panda.HW_TYPE_TRES, Panda.HW_TYPE_RED_PANDA):
-    choice = FirmwareChoice()
+  if choice.alternate:
+    if choice.rivian:
+      # The Rivian wake image only targets the comma 4 internal Panda.
+      supported = panda.is_internal() and panda.get_type() == Panda.HW_TYPE_CUATRO
+    else:
+      supported = panda.get_type() in (Panda.HW_TYPE_DOS, Panda.HW_TYPE_TRES, Panda.HW_TYPE_RED_PANDA)
+    if not supported:
+      choice = FirmwareChoice()
   fw_path = firmware_path(FW_PATH, panda.get_mcu_type().config.app_fn, choice)
   fw_signature = get_expected_signature(panda.get_mcu_type(), choice)
   internal_panda = panda.is_internal()
@@ -127,7 +134,10 @@ def main() -> None:
         time.sleep(1)
         wait_for_internal_panda()
 
+      # Update and reserve the Rivian Extreme harness bridge before managing ordinary Pandas.
       panda_serials = Panda.list()
+      bridge_serials = prepare_rivian_bridge(panda_serials) if len(panda_serials) else set()
+      panda_serials = [serial for serial in panda_serials if serial not in bridge_serials]
       if len(panda_serials):
         cloudlog.info(f"{len(panda_serials)} panda found, connecting - {panda_serials}")
         choice = startup_choice(Params())

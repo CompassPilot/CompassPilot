@@ -31,6 +31,27 @@ def create_lka_steering(packer, frame, acm_lka_hba_cmd, apply_torque, enabled, a
   return packer.make_can_msg("ACM_lkaHbaCmd", 0, values)
 
 
+def create_angle_steering(packer, frame, angle, active):
+  values = {
+    "ACM_SteeringControl_Counter": frame % 15,
+    "ACM_SteeringAngleRequest": angle,
+    "ACM_EacEnabled": active,
+    "ACM_HapticRequired": 0,
+  }
+  return packer.make_can_msg("ACM_SteeringControl", 0, values)
+
+
+def create_acm_status(packer, frame, feature_status):
+  values = {
+    "ACM_Status_Counter": frame % 15,
+    "ACM_FeatureStatus": feature_status,
+    "ACM_FaultStatus": 0,
+    "ACM_FaultSupervisorState": 0,
+    "ACM_Unkown1": 0,
+  }
+  return packer.make_can_msg("ACM_Status", 0, values)
+
+
 def create_wheel_touch(packer, sccm_wheel_touch, enabled):
   values = {s: sccm_wheel_touch[s] for s in (
     "SCCM_WheelTouch_Counter",
@@ -61,7 +82,7 @@ def create_longitudinal(packer, frame, accel, enabled):
   return packer.make_can_msg("ACM_longitudinalRequest", 0, values)
 
 
-def create_adas_status(packer, vdm_adas_status, interface_status, cancel=False):
+def create_adas_status(packer, vdm_adas_status, interface_status, cancel=False, driver_override=None):
   values = {s: vdm_adas_status[s] for s in (
     "VDM_AdasStatus_Counter",
     "VDM_AdasDecelLimit",
@@ -79,6 +100,9 @@ def create_adas_status(packer, vdm_adas_status, interface_status, cancel=False):
     values["VDM_AdasInterfaceStatus"] = interface_status
     if cancel:
       values["VDM_UserAdasRequest"] = 1  # real stock cancel request, UP_1
+
+  if driver_override is not None:
+    values["VDM_AdasDriverModeStatus"] = driver_override
 
   return packer.make_can_msg("VDM_AdasSts", 2, values)
 

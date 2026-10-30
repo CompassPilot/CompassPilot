@@ -240,7 +240,8 @@ def test_nontransmission_has_no_new_witness(platform):
   raise AssertionError('expected the actual controller transmission cadence to hold a frame')
 
 
-@pytest.mark.parametrize('speed,expected', ((9.0, 350.0), (13.0, 300.0), (17.0, 250.0)))
+# Rivian four-point envelope: [9, 13, 25, 27] m/s -> [385, 350, 295, 275].
+@pytest.mark.parametrize('speed,expected', ((9.0, 385.0), (13.0, 350.0), (17.0, 332.0)))
 def test_rivian_captures_actual_dynamic_max(speed, expected):
   ci = make_interface(RIVIAN.RIVIAN_R1)
   assert install_observer(ci)

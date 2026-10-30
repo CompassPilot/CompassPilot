@@ -1,6 +1,6 @@
 from panda import FW_PATH
 from openpilot.common.hardware import HARDWARE
-from openpilot.starpilot.panda_wake import firmware_ready, resolve, snapshot, supported_keys
+from openpilot.starpilot.panda_wake import DEFAULT_DEVICE_TYPES, DEVICE_TYPES, firmware_ready, resolve, snapshot, supported_keys
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow
 from openpilot.starpilot.vehicle_selection import read_selection
@@ -11,6 +11,7 @@ LABELS = {
   'HKGRemoteStartBootsComma': ('Remote Climate Boots Comma', 'Wake comma during Hyundai, Kia or Genesis remote climate.'),
   'IgnoreIgnitionLine': ('Use CAN Ignition Only', 'Use GM CAN ignition instead of the harness ignition signal.'),
   'TeslaWakeOnCAN': ('Wake Comma with Tesla', 'Wake comma when your Tesla wakes up, before you press the brake.'),
+  'RivianWakeBootsComma': ('Wake Comma with Rivian', 'Wake comma 4 when your Rivian wakes up on vehicle activity.'),
 }
 
 
@@ -23,7 +24,9 @@ class PandaWakeFeature:
 
   def capability(self):
     cp = self.owner.vehicle_params()
-    keys = supported_keys(cp) if self.galaxy() and self.device_type() in ('tici', 'tizi') else ()
+    device_type = self.device_type()
+    keys = tuple(key for key in supported_keys(cp) if device_type in DEVICE_TYPES.get(key, DEFAULT_DEVICE_TYPES)) \
+      if self.galaxy() else ()
     selection = read_selection(self.owner.params)
     if not keys or not selection.readable or not selection.valid or selection.platform is None:
       return None

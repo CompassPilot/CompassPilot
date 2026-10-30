@@ -3,7 +3,8 @@
 VEHICLE_BOOL_KEYS = frozenset(("AlphaLongitudinalEnabled", "SubaruAvhStartup", "SubaruStopStartOff", "SubaruSNG", "SubaruRedneckCruise",
                               "GMPedalLongitudinal", "DisableOpenpilotLongitudinal", "LongPitch", "VoltSNG", "SNGHack", "GMAutoHold", "VoltOnePedalMode",
                               "TeslaCoopSteering", "TeslaAOLScreenTap", "TeslaAOLDisengageOnBrake",
-                              "RemoteStartBootsComma", "HKGRemoteStartBootsComma", "IgnoreIgnitionLine", "TeslaWakeOnCAN"))
+                              "RemoteStartBootsComma", "HKGRemoteStartBootsComma", "IgnoreIgnitionLine", "TeslaWakeOnCAN",
+                              "RivianWakeBootsComma", "RivianAngleControl", "RivianAngleSpeedControl"))
 
 
 def confirmation_question(request):
@@ -46,6 +47,10 @@ def confirmation_question(request):
     return f"{verb} Tesla cooperative steering after the next startup? Light steering input adjusts the assisted steering angle within its limits."
   if request.key == "TeslaAOLScreenTap":
     return f"{verb} three-finger screen taps for Always On Lateral after the next startup? Cruise control stays independent."
+  if request.key == "RivianAngleControl":
+    return f"{verb} Extreme harness angle steering after the next startup? Driver input still hands control back to torque."
+  if request.key == "RivianAngleSpeedControl":
+    return f"{verb} speed-based angle steering after the next startup? Torque steering is used below the minimum speed."
   if request.key == "TeslaAOLDisengageOnBrake":
     return f"{verb} disarming Always On Lateral with the brake after the next startup? This applies with either Tesla harness."
   raise ValueError("Unsupported vehicle preference")

@@ -122,7 +122,7 @@ class FeatureSettingsState:
   parked: bool = False
   scroll: int = 0
   sidebar_expanded: bool = True
-  parent_title: str = "StarPilot"
+  parent_title: str = "CompassPilot"
   editor: bool = False
   save_hint: str = "Changes save automatically"
   subtitle_accent: str = ""
@@ -290,7 +290,7 @@ def feature_parent_page(page: str) -> str | None:
 
 def feature_parent_title(page: str) -> str:
   parent = feature_parent_page(page)
-  return {None: "StarPilot", FeaturePage.HUB: "Driving Controls", FeaturePage.PROFILES: "Long Planner",
+  return {None: "CompassPilot", FeaturePage.HUB: "Driving Controls", FeaturePage.PROFILES: "Long Planner",
           FeaturePage.CONDITIONAL: "Conditional Driving Modes", FeaturePage.TORQUE: "Steering and Torque"}.get(parent, (parent or "").replace("_", " ").title())
 
 
