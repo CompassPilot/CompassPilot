@@ -56,6 +56,7 @@ from openpilot.starpilot.ui.tesla_coop_feature import TeslaCoopFeature
 from openpilot.starpilot.ui.tesla_screen_feature import TeslaScreenFeature, KEYS as TESLA_SCREEN_KEYS
 from openpilot.starpilot.ui.ford_bluepilot_feature import FordBluePilotFeature, KEYS as FORD_BLUEPILOT_KEYS
 from openpilot.starpilot.ui.ford_cluster_feature import FordClusterFeature
+from openpilot.starpilot.ui.rivian_feature import RivianFeature, KEYS as RIVIAN_KEYS
 from openpilot.starpilot.ui.preap_radar_feature import PreAPRadarFeature, KEYS as PREAP_RADAR_KEYS, capability as preap_radar_capability
 from openpilot.starpilot.ui.gm_tune_feature import GmTuneFeature, GmTruckFeature, GmEvPresetFeature
 from openpilot.starpilot.car.gm.tune_preferences import KEY as GM_TUNE_KEY
@@ -164,6 +165,7 @@ class FeatureSettingsOwner:
     self.long_profiles = LongProfileFeature(self)
     self.tesla_screen = TeslaScreenFeature(self)
     self.tesla_coop = TeslaCoopFeature(self)
+    self.rivian = RivianFeature(self)
     from openpilot.starpilot.ui.gm_cancel_remap_feature import GmCancelRemapFeature
     self.gm_cancel_remap = GmCancelRemapFeature(self)
 
@@ -832,6 +834,7 @@ class FeatureSettingsOwner:
           self._subaru_avh_capability() is not None or self._subaru_startup_capability() is not None or self._subaru_sng_capability() is not None or
           self._subaru_software_capability() is not None or self._gm_stop_capability("VoltSNG") is not None or
           self._gm_stop_capability("GMAutoHold") is not None or self.tesla_screen.capability() is not None or self.tesla_coop.capability() is not None or
+          self.rivian.capability() is not None or
           self.gm_tune.capability() is not None or self.gm_truck.capability() is not None or
           self.gm_ev_preset.capability() is not None or self.volt_radar.capability() is not None or
           self.panda_wake.capability() is not None or preap_radar_capability(self.vehicle_params()) is not None):
@@ -865,6 +868,7 @@ class FeatureSettingsOwner:
         rows.append(replace(row, available=row.available and self._readable("JeepBrakeHold"), capability=jeep_capability))
       rows.extend(self.tesla_screen.rows(parked))
       rows.extend(self.tesla_coop.rows(parked))
+      rows.extend(self.rivian.rows(parked))
       rows.extend(self.gm_cancel_remap.rows(parked))
 
       rows.extend(self.preap_radar.rows())
@@ -1367,6 +1371,8 @@ class FeatureSettingsOwner:
       return self.tesla_coop.apply(request)
     if key in TESLA_SCREEN_KEYS:
       return self.tesla_screen.apply(request)
+    if key in RIVIAN_KEYS:
+      return self.rivian.apply(request)
     if key == GM_TUNE_KEY:
       return self.gm_tune.apply(request)
     if key in PANDA_WAKE_KEYS:

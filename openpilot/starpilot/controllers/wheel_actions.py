@@ -45,7 +45,14 @@ def button_reported(cp, key):
   brand = cp.brand
   if key not in KEYS[:8]:
     return True  # Physical media rows have their separate receiver contract.
-  if brand in ('body', 'byd', 'mg', 'mock', 'psa', 'rivian', 'subaru'):
+  if brand == 'rivian':
+    # Only the Extreme harness parses the stalk detents (half-up = LKAS) and,
+    # with the longitudinal bridge, the right scroll wheel (distance).
+    from opendbc.car.rivian.values import RivianFlags
+    if key == 'LKASButtonControl':
+      return bool(cp.flags & (RivianFlags.ANGLE_HARNESS | RivianFlags.LONGITUDINAL_HARNESS))
+    return bool(key in KEYS[2:5] and cp.flags & RivianFlags.LONGITUDINAL_HARNESS)
+  if brand in ('body', 'byd', 'mg', 'mock', 'psa', 'subaru'):
     return False
   if brand == 'toyota':
     from opendbc.car.toyota import legacy_advert_filter, camera_2aa_filter

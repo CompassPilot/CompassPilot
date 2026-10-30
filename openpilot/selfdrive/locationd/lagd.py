@@ -209,6 +209,8 @@ class LateralLagEstimator:
     self.last_steering_saturated_t = 0.0
     self.last_pose_invalid_t = 0.0
     self.last_estimate_t = 0.0
+    self.dynamic_rivian_steering = rivian_dynamic_steering(CP)
+    self.rivian_lateral_mode = None
 
     self.calibrator = PoseCalibrator()
 
@@ -259,6 +261,23 @@ class LateralLagEstimator:
   def handle_log(self, t: float, which: str, msg: capnp._DynamicStructReader):
     if which == "carControl":
       self.lat_active = msg.latActive
+    elif which == "carOutput" and self.dynamic_rivian_steering:
+      mode = msg.actuatorsOutput.lateralControlMode
+      LateralControlMode = car.CarControl.Actuators.LateralControlMode
+      active_mode = None
+      if mode == LateralControlMode.angle:
+        active_mode = LateralControlMode.angle
+      elif mode in (LateralControlMode.torque, LateralControlMode.torqueRecovering):
+        active_mode = LateralControlMode.torque
+
+      if active_mode is not None:
+        if self.rivian_lateral_mode is not None and active_mode != self.rivian_lateral_mode:
+          # Angle and torque have different plant delays. Never mix their
+          # samples or block averages after a live toggle/handoff.
+          self.reset(self.initial_lag, 0)
+          self.last_estimate_t = 0.0
+          self.last_lat_inactive_t = t
+        self.rivian_lateral_mode = active_mode
     elif which == "carState":
       self.steering_pressed = msg.steeringPressed
       self.v_ego = msg.vEgo
@@ -362,6 +381,22 @@ class LateralLagEstimator:
     return lag, corr, confidence
 
 
+def rivian_dynamic_steering(CP: car.CarParams) -> bool:
+  # An Extreme-harness Rivian switches torque/angle lateral channels live
+  # without changing CarParams.steerControlType.
+  if CP.brand != "rivian":
+    return False
+  from opendbc.car.rivian.values import RivianFlags
+  return bool(CP.flags & RivianFlags.ANGLE_HARNESS)
+
+
+def lagd_input_sockets(CP: car.CarParams) -> list[str]:
+  sockets = ['deviceMotion', 'extrinsicsCalibration', 'carState', 'controlsState', 'carControl']
+  if rivian_dynamic_steering(CP):
+    sockets.append('carOutput')
+  return sockets
+
+
 def retrieve_initial_lag(params: Params, CP: car.CarParams):
   last_lag_data = get_cache(params, "LiveDelay")
   last_carparams_data = get_cache(params, "CarParamsPrevRoute")
@@ -372,6 +407,9 @@ def retrieve_initial_lag(params: Params, CP: car.CarParams):
         ld = last_lag_msg.lateralDelay
         if last_CP.carFingerprint != CP.carFingerprint:
           raise Exception("Car model mismatch")
+        if rivian_dynamic_steering(CP):
+          # The cached message does not record which lateral channel produced it.
+          raise Exception("Dynamic Rivian steering mode; discard stale lag")
 
         lag, valid_blocks, status, version = ld.lateralDelayEstimate, ld.validBlocks, ld.status, ld.version
         assert valid_blocks <= BLOCK_NUM, "Invalid number of valid blocks"
@@ -391,11 +429,11 @@ def main():
 
   DEBUG = bool(int(os.getenv("DEBUG", "0")))
 
-  pm = messaging.PubMaster(['lateralDelay'])
-  sm = messaging.SubMaster(['deviceMotion', 'extrinsicsCalibration', 'carState', 'controlsState', 'carControl'], poll='deviceMotion')
-
   params = Params()
   CP = messaging.log_from_bytes(params.get("CarParams", block=True), car.CarParams)
+
+  pm = messaging.PubMaster(['lateralDelay'])
+  sm = messaging.SubMaster(lagd_input_sockets(CP), poll='deviceMotion')
 
   lag_learner = LateralLagEstimator(CP, 1. / SERVICE_LIST['deviceMotion'].frequency)
   from openpilot.starpilot.lateral.gm_geometry_runtime import GeometryPublicationOwner

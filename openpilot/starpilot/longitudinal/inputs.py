@@ -77,6 +77,9 @@ class LongitudinalInputs:
       self.ev9_traffic = TrafficLaunchState(params)
       self.ev9_profile = ProfileHost(params)
     self.blended_longitudinal_enabled = blended_longitudinal_eligible(cp)
+    from opendbc.car.rivian.final_stop import policy_for as rivian_final_stop_for
+    # Rivian final-stop shaping distinguishes lead and planner stops.
+    self.lead_evidence_enabled = self.blended_longitudinal_enabled or rivian_final_stop_for(cp) is not None
     self.params = params
     self.messages = messages
     self.toyota_sienna_replay = toyota_development_enabled(self.CP) and str(self.CP.carFingerprint) == SIENNA_4G
@@ -171,7 +174,7 @@ class LongitudinalInputs:
       start_evidence=self._ioniq6_start_evidence() if self.ioniq6_start_enabled else None,
       gm_start_evidence=self._gm_start_evidence() if self.gm_start_enabled and active else None,
       has_lead=(bool(self.sm['longitudinalPlan'].hasLead)
-                if self.blended_longitudinal_enabled and self.sm.all_checks(['longitudinalPlan'])
+                if getattr(self, 'lead_evidence_enabled', self.blended_longitudinal_enabled) and self.sm.all_checks(['longitudinalPlan'])
                 else cc_evidence.has_lead if cc_evidence is not None else volt_observation[0]
                 if volt_observation is not None else None),
       vehicle_stop_evidence=cc_evidence if cc_evidence is not None else self._gm_suburban_evidence()
