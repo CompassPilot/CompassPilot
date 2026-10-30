@@ -193,6 +193,7 @@ for variant, flags in (
   ("remote", ["-DPANDA_GM_REMOTE_START_C9"]),
   ("hkg_remote", ["-DPANDA_HKG_REMOTE_START"]),
   ("tesla_wake", ["-DPANDA_TESLA_WAKE_ON_CAN"]),
+  ("rivian_wake", ["-DPANDA_RIVIAN_WAKE"]),
   ("can_ignition_only", ["-DPANDA_IGNORE_IGNITION_LINE"]),
   ("remote_can_ignition_only", ["-DPANDA_GM_REMOTE_START_C9", "-DPANDA_IGNORE_IGNITION_LINE"]),
   ("hkg_remote_can_ignition_only", ["-DPANDA_HKG_REMOTE_START", "-DPANDA_IGNORE_IGNITION_LINE"]),

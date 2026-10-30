@@ -45,6 +45,7 @@ from opendbc.car.volkswagen.stock_aol import (native_observation as volkswagen_n
 from openpilot.starpilot.car.volkswagen.aol import (qualified as qualified_volkswagen_aol,
   temporary_restriction as volkswagen_temporary_restriction)
 from openpilot.starpilot.car.rivian.aol import retained_brake_lateral_intent as rivian_brake_intent_retained
+from opendbc.car.rivian.harness_aol import qualified as qualified_rivian_harness_aol
 from opendbc.car.rivian.stock_aol import (qualified as qualified_rivian_aol,
                                          native_observation as rivian_native_observation,
                                          temporary_restriction as rivian_temporary_restriction)
@@ -644,7 +645,7 @@ class Car:
           transport_observed_healthy=reuse_transport or angle_arm_pending)
       angle_aol, ford_aol, honda_aol, mazda_aol, preap_aol, volkswagen_aol = self.aol_permission_owners()
       nissan_aol = qualified_nissan_aol(self.CP, marked_only=True)
-      rivian_aol = qualified_rivian_aol(self.CP, marked_only=True)
+      rivian_aol = qualified_rivian_aol(self.CP, marked_only=True) or qualified_rivian_harness_aol(self.CP, marked_only=True)
       permission_owner = angle_aol or ford_aol or honda_aol or mazda_aol or preap_aol or nissan_aol or volkswagen_aol or rivian_aol
       angle_panda_ready = not permission_owner or self.startup_panda_configured()
       native = (
@@ -1763,6 +1764,9 @@ class Car:
         update_subaru_sng(self, CS, CC, now_nanos)
         from openpilot.starpilot.car.subaru.stop_start_caller import update as update_subaru_startup
         update_subaru_startup(self, now_nanos)
+      if self.CP.brand == "rivian":
+        from openpilot.starpilot.car.rivian.controller_caller import update as update_rivian_controller
+        update_rivian_controller(self, CS, CC, now_nanos)
       self.last_actuators_output, can_sends = self.CI.apply(CC, now_nanos)
       self.publish_sendcan(can_sends, valid=CS.canValid)
       if learning_snapshot is not None and self.learning_send_committed_mono_ns:

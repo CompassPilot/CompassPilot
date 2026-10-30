@@ -152,6 +152,8 @@ class CompactHudRenderer:
 
   def render_steering_wheel(self, state: OnroadState) -> None:
     color = self._feedback.update(state.wheel_acceleration, state.appearance.wheel_pedal_feedback, state.observed_ns, state.drive_frame)
+    if state.rivian_wheel_tint is not None:
+      color = state.rivian_wheel_tint
     if state.lateral_active:
       wheel_alpha = self._wheel_alpha.update(255 * 0.9)
       wheel_y = self._wheel_y.update(0)

@@ -172,7 +172,7 @@ class SteeringWheelWidget:
     if border.a:
       rl.draw_ring(rl.Vector2(x + radius, y + radius), radius - 3, radius, 0, 360, 64, border)
     feedback = self._feedback.update(state.wheel_acceleration, state.appearance.wheel_pedal_feedback, state.observed_ns, state.drive_frame)
-    color = rl.Color(*feedback, 255)
+    color = rl.Color(*(state.rivian_wheel_tint or feedback), 255)
     rl.draw_texture_pro(self._texture, rl.Rectangle(0, 0, 144, 144),
                         rl.Rectangle(x + size / 8, y + size / 8, size * .75, size * .75),
                         rl.Vector2(0, 0), 0, color)

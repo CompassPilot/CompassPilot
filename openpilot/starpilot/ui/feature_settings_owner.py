@@ -53,6 +53,7 @@ from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.wheel_feature import WheelFeature, PREFIX as WHEEL_PREFIX
 from openpilot.starpilot.longitudinal.output_max import KEY as OUTPUT_MAX_KEY
 from openpilot.starpilot.ui.tesla_screen_feature import TeslaScreenFeature, KEYS as TESLA_SCREEN_KEYS
+from openpilot.starpilot.ui.rivian_feature import RivianFeature, KEYS as RIVIAN_KEYS
 from openpilot.starpilot.ui.ford_lateral_feature import FordLateralFeature, FordClusterFeature
 from openpilot.starpilot.ui.ford_pinion_feature import FordPinionFeature
 from openpilot.starpilot.ui.preap_radar_feature import PreAPRadarFeature, KEYS as PREAP_RADAR_KEYS, capability as preap_radar_capability
@@ -162,6 +163,7 @@ class FeatureSettingsOwner:
                                       configuration_longitudinal=self.configuration_longitudinal)
     self.long_profiles = LongProfileFeature(self)
     self.tesla_screen = TeslaScreenFeature(self)
+    self.rivian = RivianFeature(self)
     from openpilot.starpilot.ui.gm_cancel_remap_feature import GmCancelRemapFeature
     self.gm_cancel_remap = GmCancelRemapFeature(self)
 
@@ -826,6 +828,7 @@ class FeatureSettingsOwner:
           self._subaru_avh_capability() is not None or self._subaru_startup_capability() is not None or self._subaru_sng_capability() is not None or
           self._subaru_software_capability() is not None or self._gm_stop_capability("VoltSNG") is not None or
           self._gm_stop_capability("GMAutoHold") is not None or self.tesla_screen.capability() is not None or
+          self.rivian.capability() is not None or
           self.gm_tune.capability() is not None or self.gm_truck.capability() is not None or
           self.gm_ev_preset.capability() is not None or self.volt_radar.capability() is not None or
           self.panda_wake.capability() is not None or preap_radar_capability(self.vehicle_params()) is not None):
@@ -862,6 +865,7 @@ class FeatureSettingsOwner:
                              "Retains a cruise-controlled stop until you press a pedal or cancel cruise. Applies after the next startup")
         rows.append(replace(row, available=row.available and self._readable("JeepBrakeHold"), capability=jeep_capability))
       rows.extend(self.tesla_screen.rows(parked))
+      rows.extend(self.rivian.rows(parked))
       rows.extend(self.gm_cancel_remap.rows(parked))
 
       rows.extend(self.preap_radar.rows())
@@ -1346,6 +1350,8 @@ class FeatureSettingsOwner:
       return self.preap_radar.apply(request)
     if key in TESLA_SCREEN_KEYS:
       return self.tesla_screen.apply(request)
+    if key in RIVIAN_KEYS:
+      return self.rivian.apply(request)
     if key == GM_TUNE_KEY:
       return self.gm_tune.apply(request)
     if key in PANDA_WAKE_KEYS:

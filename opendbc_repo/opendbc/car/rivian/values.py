@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum, IntFlag
 
 from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds
+from opendbc.car.lateral import AngleSteeringLimitsVM
 from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries, p16
 from opendbc.car.vin import Vin
@@ -32,7 +33,8 @@ class RivianCarDocs(CarDocs):
 
 @dataclass
 class RivianPlatformConfig(PlatformConfig):
-  dbc_dict: DbcDict = field(default_factory=lambda: {Bus.pt: 'rivian_primary_actuator', Bus.radar: 'rivian_mando_front_radar_generated'})
+  dbc_dict: DbcDict = field(default_factory=lambda: {Bus.pt: 'rivian_primary_actuator', Bus.radar: 'rivian_mando_front_radar_generated',
+                                                     Bus.alt: 'rivian_park_assist_can'})
   wmis: set[WMI] = field(default_factory=set)
   lines: set[ModelLine] = field(default_factory=set)
   years: set[ModelYear] = field(default_factory=set)
@@ -40,26 +42,52 @@ class RivianPlatformConfig(PlatformConfig):
 
 class RivianFlags(IntFlag):
   GEN2 = 1
+  # Extreme harness bridge capabilities, detected from bus 1 at fingerprinting.
+  ANGLE_HARNESS = 2
+  LONGITUDINAL_HARNESS = 4
 
 
 class RivianSafetyFlags(IntFlag):
   LONG_CONTROL = 1
+  ANGLE_CONTROL = 2
+  AOL_LATERAL = 4
+  AOL_BRAKE_REMAINS_ACTIVE = 8
+  AOL_STALK_TOGGLE = 16
+  AOL_START_ENABLED = 32
+  R1T = 64
+
+
+# R1S Launch Edition curb (7068 lb) and 121.1 in wheelbase, rounded up.
+R1S_SPECS = CarSpecs(mass=3206., wheelbase=3.08, steerRatio=15.2)
+# R1T Dual curb (7147 lb) and 135.8 in wheelbase, rounded up like R1S.
+R1T_SPECS = CarSpecs(mass=3242., wheelbase=3.45, steerRatio=15.2)
+RIVIAN_R1_YEARS = {ModelYear.N_2022, ModelYear.P_2023, ModelYear.R_2024, ModelYear.S_2025}
 
 
 class CAR(Platforms):
+  # RIVIAN_R1 keeps the upstream identity for the R1S and for historical routes.
+  # RivianFlags.GEN2 still distinguishes 2025+ at runtime from CAN.
   RIVIAN_R1 = RivianPlatformConfig(
     [
       RivianCarDocs("Rivian R1S 2022-24", video="https://youtu.be/dflSSGQwYNc", setup_video="https://youtu.be/uaISd1j7Z4U",
                     car_parts=CarParts.common([CarHarness.rivian_a])),
       # RivianCarDocs("Rivian R1S 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
+    ],
+    R1S_SPECS,
+    wmis={WMI.RIVIAN_MPV},
+    lines={ModelLine.R1S},
+    years=RIVIAN_R1_YEARS,
+  )
+  RIVIAN_R1T = RivianPlatformConfig(
+    [
       RivianCarDocs("Rivian R1T 2022-24", video="https://youtu.be/dflSSGQwYNc", setup_video="https://youtu.be/uaISd1j7Z4U",
                     car_parts=CarParts.common([CarHarness.rivian_a])),
       # RivianCarDocs("Rivian R1T 2025", car_parts=CarParts.common([CarHarness.rivian_b])),
     ],
-    CarSpecs(mass=3206., wheelbase=3.08, steerRatio=15.2),
-    wmis={WMI.RIVIAN_TRUCK, WMI.RIVIAN_MPV},
-    lines={ModelLine.R1T, ModelLine.R1S},
-    years={ModelYear.N_2022, ModelYear.P_2023, ModelYear.R_2024, ModelYear.S_2025},
+    R1T_SPECS,
+    wmis={WMI.RIVIAN_TRUCK},
+    lines={ModelLine.R1T},
+    years=RIVIAN_R1_YEARS,
   )
 
 
@@ -80,9 +108,10 @@ def match_fw_to_car_fuzzy(live_fw_versions, vin, offline_fw_versions) -> set[str
 RIVIAN_VERSION_REQUEST = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER]) + \
   p16(0xf1a0)
 RIVIAN_VERSION_RESPONSE = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER + 0x40])
+RIVIAN_FW_VERSION_REGEX = br"R1TS_v\d+\.\d+\.\d+\(\d+\),\d+\.\d+\.\d+\x00"
 
 FW_QUERY_CONFIG = FwQueryConfig(
-  fw_version_regex=br"R1TS_v\d+\.\d+\.\d+\(\d+\),\d+\.\d+\.\d+\x00",
+  fw_version_regex=RIVIAN_FW_VERSION_REGEX,
   requests=[
     Request(
       [StdQueries.TESTER_PRESENT_REQUEST, StdQueries.SUPPLIER_SOFTWARE_VERSION_REQUEST],
@@ -118,16 +147,13 @@ GEAR_MAP = {
 
 
 class CarControllerParams:
-  # The R1T 2023 and R1S 2023 we tested on achieves slightly more lateral acceleration going left vs. right
-  # and lateral acceleration falls linearly as speed decreases from 38 mph to 20 mph. These values are set
-  # conservatively to reach a maximum of 3.0 m/s^2 turning left at 80 mph
-
-  # These refer to turning left:
-  # 250 is ~2.8 m/s^2 above 17 m/s, then linearly ramps to ~1.6 m/s^2 from 17 m/s to 9 m/s
+  # Four-point torque envelope: preserve low-speed authority, lift the
+  # mid-speed saturation band, and taper on the highway.
   # TODO: it is theorized older models have different steering racks and achieve down to half the
   #  lateral acceleration referenced here at all speeds. detect this and ship a torque increase for those models
-  STEER_MAX = 250  # 350 is intended to maintain lateral accel, not increase it
-  STEER_MAX_LOOKUP = [9, 17], [350, 250]
+  STEER_MAX = 385
+  STEER_MAX_LOOKUP = [9, 13, 25, 27], [385, 350, 295, 275]
+
   STEER_STEP = 1
   STEER_DELTA_UP = 3  # torque increase per refresh
   STEER_DELTA_DOWN = 5  # torque decrease per refresh
@@ -135,8 +161,19 @@ class CarControllerParams:
   STEER_DRIVER_MULTIPLIER = 2  # weight driver torque
   STEER_DRIVER_FACTOR = 100
 
+  ANGLE_LIMITS: AngleSteeringLimitsVM = AngleSteeringLimitsVM(
+    500,
+    MAX_ANGLE_RATE=2.5,
+  )
+
   ACCEL_MIN = -3.5  # m/s^2
   ACCEL_MAX = 2.0  # m/s^2
+
+  # Compensate for the Rivian VDM's measured regen/creep drag without adding a
+  # noisy proportional term around wheel-speed-derived aEgo. The offset fades
+  # to zero at standstill so braking hold behavior is unchanged.
+  ACCEL_FF_DRAG_BP = [0.8, 3.0, 8.0, 13.0, 20.0, 30.0]
+  ACCEL_FF_DRAG_V = [0.0, 0.17, 0.17, 0.12, 0.10, 0.08]
 
   def __init__(self, CP):
     pass

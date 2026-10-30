@@ -16,7 +16,7 @@ import time
 from typing import Any
 from openpilot.starpilot.galaxy.access import AccessStatus, GalaxyAccessOwner
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice, OnroadAppearance, onroad_appearance
-from openpilot.starpilot.ui.brand import DISPLAY_VERSION, home_description
+from openpilot.starpilot.ui.brand import DISPLAY_VERSION, home_description, home_screen_name
 from openpilot.starpilot.curve_speed.status import observation as curve_observation
 from openpilot.starpilot.conditional_mode.policy import ModeChoice
 from openpilot.starpilot.conditional_mode.manual import TRAFFIC_MODE_ACTION, read_button_map
@@ -32,6 +32,7 @@ from openpilot.starpilot.ui.conditional_status import ConditionalDisplayProjecto
 from openpilot.starpilot.ui.traffic_status import TrafficDisplayProjector
 from openpilot.starpilot.controllers.mode_actions import SwitchbackStatusOwner
 from openpilot.starpilot.ui.wheel_feedback import observe_wheel_acceleration
+from openpilot.starpilot.car.rivian.lateral_mode import wheel_tint as rivian_wheel_tint
 from openpilot.starpilot.ui.torque_feedback import observe_torque_feedback
 from openpilot.starpilot.ui.live_developer_sidebar import DeveloperMetrics
 
@@ -643,9 +644,9 @@ class RuntimeSnapshotAdapter:
         persona = _personality(log.LongitudinalPersonality.schema.enumerants[str(display_selfdrive.personality)])
       except (AttributeError, KeyError, TypeError, ValueError):
         pass
+    display_output = display_message(sm, "carOutput", now_ns, after_frame=after) if started else None
     torque = observe_torque_feedback(
-      display_car, display_control, display_controls,
-      display_message(sm, "carOutput", now_ns, after_frame=after) if started else None,
+      display_car, display_control, display_controls, display_output,
       display_message(sm, "vehicleParameters", now_ns, after_frame=after) if started else None, cp,
     )
     display_lat_active = bool(display_control.latActive) if display_control is not None else False
@@ -691,6 +692,8 @@ class RuntimeSnapshotAdapter:
                          wheel_acceleration=observe_wheel_acceleration(display_car),
                          aol_latched=(display_aol_latch(sm, now_ns, after_frame=after)
                                       if started and getattr(ui, "aol_runtime", False) else None),
+                         rivian_wheel_tint=rivian_wheel_tint(cp, display_control, display_car if display_car_valid else None,
+                                                             display_output),
                          lateral_active=display_lat_active, longitudinal_active=display_long_active,
                          longitudinal_overridden=longitudinal_overridden,
                          driver_override_active=bool(display_car_valid and (
@@ -759,7 +762,7 @@ class RuntimeSnapshotAdapter:
                      recording_audio=bool(ui.recording_audio), bluetooth=bluetooth,
                      gpu_present=gpu_present, gpu_active=gpu_active, branch=_text(params, "GitBranch"),
                      gpu_state=getattr(getattr(ui, "chestnut_state", None), "value", "disconnected"),
-                     jetlink=jetlink)
+                     jetlink=jetlink, brand=home_screen_name(_text(params, "HomeScreenName")))
 
     settings_pages = (Destination.STAR, Destination.DEVICE, Destination.NETWORK, Destination.SOFTWARE, Destination.TOGGLES,
                       Destination.DRIVING_CONTROLS, Destination.SOUNDS, Destination.APPEARANCE,

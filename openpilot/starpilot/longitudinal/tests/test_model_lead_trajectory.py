@@ -125,6 +125,27 @@ class TestModelLeadTrajectory(unittest.TestCase):
     np.testing.assert_array_equal(mpc.process_lead(lead, good, model_v_ego=20.), mpc.process_lead(lead))
 
 
+  def test_accelerating_lead_past_follow_gap_falls_back_to_raw_lead(self):
+    sm, _ = inputs()
+    lead = sm['radarState'].leadOne
+    good = sm['modelV2'].leadsV3[0]
+    self.assertIsNotNone(m.build_model_lead_trajectory(good, lead, 20., 20., t_follow=.75))
+    # dRel 36 m against a 20 m/s lead: the 0.75 s desired gap (21 m) plus the 5 m
+    # catch-up allowance is exceeded, so planning uses the raw lead to close in.
+    lead.aLeadK = .6
+    self.assertIsNone(m.build_model_lead_trajectory(good, lead, 20., 20., t_follow=.75))
+    # A longer follow time keeps the model horizon while the gap is still wanted.
+    self.assertIsNotNone(m.build_model_lead_trajectory(good, lead, 20., 20., t_follow=1.75))
+    lead.aLeadK = .2
+    self.assertIsNotNone(m.build_model_lead_trajectory(good, lead, 20., 20., t_follow=.75))
+
+    mpc = self.planner().mpc
+    mpc.set_cur_state(20., 0.)
+    lead.aLeadK = .6
+    np.testing.assert_array_equal(mpc.process_lead(lead, good, model_v_ego=20., t_follow=.75), mpc.process_lead(lead))
+    np.testing.assert_array_equal(mpc.process_lead(lead, good, model_v_ego=20., t_follow=1.75),
+                                  m.build_model_lead_trajectory(good, lead, 20., 20., t_follow=1.75))
+
   def test_unmatched_low_speed_override_cannot_adopt_other_models_departure(self):
     from openpilot.selfdrive.controls.radard import Track, KalmanParams, get_lead
     from openpilot.cereal import log

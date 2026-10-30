@@ -91,6 +91,12 @@ DESCRIPTIONS = {
   'HKGRemoteStartBootsComma': 'Wakes comma during Hyundai, Kia or Genesis remote climate operation.',
   'IgnoreIgnitionLine': 'Uses GM CAN ignition instead of the harness ignition signal.',
   'TeslaWakeOnCAN': 'Wakes comma when the Tesla wakes up, before you press the brake.',
+  'RivianWakeBootsComma': 'Wakes comma 4 when the Rivian wakes up on main-bus vehicle activity.',
+  'RivianAngleControl': 'Steers through the Rivian Extreme harness angle channel; driver input hands control back to torque.',
+  'RivianAngleSpeedControl': 'Uses angle steering only above the minimum speed and torque steering below it.',
+  'RivianAngleMinimumSpeed': 'Sets the speed above which speed-based angle steering selects the angle channel.',
+  'AOLBrakeBehavior': 'Chooses whether Rivian Always On Lateral keeps steering or disengages while you brake.',
+  'AOLStartupBehavior': 'Chooses whether Rivian Always On Lateral arms on entering Drive or waits for an engagement or the half-up stalk.',
   'RadarRecoveryAlert': 'Play a chime and show a brief message when a radar fault clears. You must re-engage manually.',
   'CameraView': 'Chooses the camera view shown on the driving screen.',
   'DeveloperSidebar': 'Shows live developer metrics on the right of the Big driving screen. Off gives that space back to the road view.',
@@ -159,6 +165,12 @@ INITIALIZATION = {
   'HKGRemoteStartBootsComma': 'Requires a device restart to load the matching Panda ignition firmware.',
   'IgnoreIgnitionLine': 'Requires a device restart to load the matching Panda ignition firmware.',
   'TeslaWakeOnCAN': 'Requires a device restart to load the matching Panda ignition firmware.',
+  'RivianWakeBootsComma': 'Requires a device restart to load the matching Panda wake firmware.',
+  'RivianAngleControl': 'Requires the next vehicle startup to select the steering channel.',
+  'RivianAngleSpeedControl': 'Requires the next vehicle startup to select the steering channel.',
+  'RivianAngleMinimumSpeed': 'Requires the next vehicle startup to select the steering channel.',
+  'AOLBrakeBehavior': 'Requires the next vehicle startup to configure the matching Panda safety permission.',
+  'AOLStartupBehavior': 'Requires the next vehicle startup to configure the matching Panda safety permission.',
 }
 
 CONDITIONS = {

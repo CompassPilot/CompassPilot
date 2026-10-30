@@ -15,6 +15,7 @@ from opendbc.car.fw_versions import FW_QUERY_CONFIGS, FUZZY_EXCLUDE_ECUS, VERSIO
 from opendbc.car.vin import get_vin
 from opendbc.car.volkswagen.values import CAR as VOLKSWAGEN, VolkswagenFlags
 from opendbc.car.hyundai.values import CAR as HYUNDAI
+from opendbc.car.rivian.values import CAR as RIVIAN
 from opendbc.testing import parameterized
 
 CarFw = CarParams.CarFw
@@ -98,6 +99,9 @@ class TestFwFingerprint(unittest.TestCase):
         continue  # removing non-essential ECUs can lose a match
       if brand == 'hyundai' and car_model in (HYUNDAI.KIA_XCEED_PHEV, HYUNDAI.KIA_CEED_PHEV) and len(matches) > 1:
         self.assertEqual(matches, {HYUNDAI.KIA_XCEED_PHEV, HYUNDAI.KIA_CEED_PHEV})
+      elif brand == "rivian" and len(matches) > 1:
+        # R1S and R1T share EPS firmware; the VIN selects the body style in production.
+        self.assertEqual(matches, {RIVIAN.RIVIAN_R1, RIVIAN.RIVIAN_R1T})
       elif meb_overlap and len(matches) > 1:
         self.assertIn(car_model, matches)
         generation = bool(VOLKSWAGEN(car_model).config.flags & VolkswagenFlags.MEB_GEN2)

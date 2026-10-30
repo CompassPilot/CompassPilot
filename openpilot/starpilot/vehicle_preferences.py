@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from openpilot.starpilot.car.subaru.smoothing import Snapshot, read_snapshot, prepare as prepare_smoothing
 
 from opendbc.car.gm.startup_preferences import prepare_disable_longitudinal
@@ -48,9 +48,21 @@ class VehicleStartupPreferences:
   toyota_radar_mode: int = 0
   gm_cancel_remap: bool = False
   vw_stock_long: bool = field(default=False, kw_only=True)
+  rivian_angle_control: bool = field(default=False, kw_only=True)
+  rivian_angle_speed_control: bool = field(default=False, kw_only=True)
+  rivian_angle_minimum_speed: float = field(default=0.0, kw_only=True)  # m/s
+  rivian_aol_brake_remains_active: bool = field(default=True, kw_only=True)
+  rivian_aol_startup: bool = field(default=True, kw_only=True)
+  rivian_stalk_aol_toggle: bool = field(default=False, kw_only=True)
+  rivian_stalk_controls: bool = field(default=False, kw_only=True)
 
   @classmethod
   def read(cls, params, *, enabled: bool):
+    from openpilot.starpilot.car.rivian.preferences import read_startup as read_rivian
+    return replace(cls._read(params, enabled=enabled), **read_rivian(params, enabled=enabled))
+
+  @classmethod
+  def _read(cls, params, *, enabled: bool):
     from openpilot.starpilot.car.ford.lateral_preferences import selected as ford_mode
     from openpilot.starpilot.car.toyota.radar_preferences import selected as toyota_radar_mode
     from openpilot.starpilot.car.gm.tune_preferences import selected_tune
@@ -226,7 +238,13 @@ class VehicleStartupPreferences:
     select_ford_lateral(cp, self.ford_lateral_mode)
     from opendbc.car.ford.pinion import select as select_pinion
     select_pinion(cp, self.ford_pinion)
+    self._prepare_rivian(cp)
     return cp
+
+  def _prepare_rivian(self, cp) -> None:
+    from opendbc.car.rivian.harness_aol import prepare as prepare_rivian_harness
+    prepare_rivian_harness(cp, brake_remains_active=self.rivian_aol_brake_remains_active,
+                           stalk_toggle=self.rivian_stalk_aol_toggle, startup_enabled=self.rivian_aol_startup)
 
   def finalize(self, cp) -> None:
     from opendbc.car.volkswagen.meb_modes import prepare_stock as prepare_meb_stock
@@ -270,11 +288,17 @@ class VehicleStartupPreferences:
       apply_radar_mode(cp, self.toyota_radar_mode)
 
     prepare_smoothing(cp, self.subaru_smoothing)
+    self._prepare_rivian(cp)
 
   def configure_controller(self, ci) -> None:
     from opendbc.car.gm.values import (CAR, is_bolt_euv_longitudinal, is_volt_longitudinal, is_gm_auto_hold,
                                      is_volt_one_pedal, camera_acc_pedal_profile, volt_cc_pedal_profile)
     cp = ci.CP
+    if ci.CC is not None and cp.brand == "rivian":
+      ci.CC.angle_control = self.rivian_angle_control
+      ci.CC.angle_speed_control = self.rivian_angle_speed_control
+      ci.CC.angle_minimum_speed = self.rivian_angle_minimum_speed
+      ci.CS.stalk_controls_enabled = self.rivian_stalk_controls
     if ci.CC is not None and cp.brand == "toyota" and not cp.passive and not cp.dashcamOnly and not cp.notCar:
       ci.CC.door_locks.lock = self.toyota_lock_doors
       ci.CC.door_locks.unlock = self.toyota_unlock_doors

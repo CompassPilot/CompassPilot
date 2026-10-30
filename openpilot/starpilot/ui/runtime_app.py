@@ -1344,7 +1344,7 @@ class StarShellSession:
         self.feature_scroll = feature_scroll(self.feature_scroll, 0, len(feature.rows))
       feature = replace(feature, scroll=0 if feature.editor else self.feature_scroll, sidebar_expanded=self.sidebar_expanded,
                         parent_title=feature.parent_title if feature.editor else
-                        "StarPilot" if self.feature_page == self.feature_root_page else feature_parent_title(self.feature_page))
+                        "CompassPilot" if self.feature_page == self.feature_root_page else feature_parent_title(self.feature_page))
       snapshot = replace(snapshot, features=feature)
     if self.profile == Profile.LARGE and mode == ShellMode.SETTINGS and self.selected == Destination.SOUNDS:
       sounds = self.sounds_snapshot()
@@ -1358,7 +1358,7 @@ class StarShellSession:
         self.appearance_scroll = feature_scroll(self.appearance_scroll, 0, len(appearance.rows))
       appearance = replace(appearance, scroll=0 if appearance.editor else self.appearance_scroll, sidebar_expanded=self.sidebar_expanded,
                            parent_title=appearance.parent_title if appearance.editor else
-                           "Appearance" if getattr(self, "appearance_page", "appearance") == "pip" else "StarPilot")
+                           "Appearance" if getattr(self, "appearance_page", "appearance") == "pip" else "CompassPilot")
       snapshot = replace(snapshot, appearance=appearance)
     if self.profile == Profile.LARGE and mode == ShellMode.SETTINGS and self.selected == Destination.SYSTEM:
       display = self.system_snapshot()

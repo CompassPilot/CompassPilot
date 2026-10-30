@@ -1,15 +1,16 @@
 """Exact BASE GEN1 AOL admission; never infer Extreme/bridge capability."""
 from opendbc.car import structs
-from opendbc.car.rivian.values import CAR
+from opendbc.car.rivian.values import CAR, RivianSafetyFlags
 
 
 def qualified(cp, *, marked_only=False):
   try:
-    return bool(cp.brand == 'rivian' and cp.carFingerprint == CAR.RIVIAN_R1 and int(cp.flags) == 0 and
+    body = int(RivianSafetyFlags.R1T) if cp.carFingerprint == CAR.RIVIAN_R1T else 0
+    return bool(cp.brand == 'rivian' and cp.carFingerprint in (CAR.RIVIAN_R1, CAR.RIVIAN_R1T) and int(cp.flags) == 0 and
       not (cp.passive or cp.notCar or cp.dashcamOnly) and cp.radarUnavailable and
       cp.fingerprintSource != structs.CarParams.FingerprintSource.fixed and
       len(cp.safetyConfigs) == 1 and cp.safetyConfigs[0].safetyModel == structs.CarParams.SafetyModel.rivian and
-      cp.safetyConfigs[0].safetyParam == int(cp.openpilotLongitudinalControl) and
+      cp.safetyConfigs[0].safetyParam == (int(cp.openpilotLongitudinalControl) | body) and
       cp.alternativeExperience in ((32,) if marked_only else (0, 32)))
   except (AttributeError, TypeError, ValueError, IndexError):
     return False

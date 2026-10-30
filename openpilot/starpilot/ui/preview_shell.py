@@ -132,7 +132,7 @@ def reference_feature_scene(scene: str) -> tuple[Destination, str, FeatureSettin
                                         "Display, drive state, power, and offline maps." if field == "display" else
                                         "Saved display preferences; changes remain governed by existing settings owners.",
                                parent_title=feature_parent_title(page) if field == "features" else "Appearance" if page == "pip" else
-                                            "System" if page == "display" else "StarPilot",
+                                            "System" if page == "display" else "CompassPilot",
                                rows=rows, parked=True,
                                scroll=5 if scene == "settings_system_maps" or scene.endswith("_scrolled") else 0,
                                sidebar_expanded=not scene.endswith("_collapsed"))

@@ -88,6 +88,18 @@ def test_stops_disabled_and_incompatible_model(case):
   assert select(TurnIntent(params, cp), sm) == log.Desire.none
 
 
+def test_planned_stop_only_vetoes_while_controls_own_stopping(case):
+  params, cp, sm = case
+  # AOL-only: the driver owns stopping, so the explicit signal still reaches the model.
+  sm['carControl'] = NS(latActive=True, enabled=False)
+  owner = TurnIntent(params, cp)
+  assert select(owner, sm, model_stop=True) == log.Desire.turnLeft
+  sm['longitudinalPlan'].shouldStop = True
+  assert select(owner, sm) == log.Desire.turnLeft
+  sm['carControl'] = NS(latActive=True, enabled=True)
+  assert select(owner, sm) == log.Desire.none
+
+
 def test_galaxy_canonical_toggle_and_save(case):
   params, cp, _ = case
   params.remove(KEY)

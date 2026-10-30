@@ -659,11 +659,11 @@ class FeatureVisualTests(unittest.TestCase):
     self.drawing()
     for expanded in (True, False):
       for title, parent, back, expected in (
-        ("Driving Model", "StarPilot", True, ["< Back", "Driving Model"]),
+        ("Driving Model", "CompassPilot", True, ["< Back", "Driving Model"]),
         ("Device", "Settings", True, ["< Back", "Device"]),
         ("Lane Centering", "Driving Controls", True, ["< Back", "Driving Controls > ", "Lane Centering"]),
         ("Aggressive", "Long Planner", True, ["< Back", "Long Planner > ", "Aggressive"]),
-        ("StarPilot", "", False, ["StarPilot"]),
+        ("CompassPilot", "", False, ["CompassPilot"]),
       ):
         with self.subTest(expanded=expanded, title=title):
           fonts = fake_fonts()

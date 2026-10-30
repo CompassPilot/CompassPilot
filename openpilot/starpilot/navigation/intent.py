@@ -97,6 +97,18 @@ def matching_turn_signal(sm, now_ns: int, *, supported: bool) -> bool:
               0 <= instruction.distanceMeters <= min(250., max(30., 15. + max(0., cs.vEgo) * 12.)))
 
 
+def controls_engaged(sm) -> bool:
+  """A planned stop only vetoes turn desires while openpilot owns stopping.
+
+  In AOL-only the driver owns stopping, and an explicit low-speed turn signal
+  should still reach the driving model.
+  """
+  try:
+    return bool(sm['carControl'].enabled)
+  except (KeyError, AttributeError, TypeError):
+    return True
+
+
 class TurnIntent:
   def __init__(self, params=None, cp=None):
     from openpilot.starpilot.lateral.auto_lane_change import steering_capable
@@ -124,7 +136,7 @@ class TurnIntent:
       plan_valid = False
     if cs.standstill or cs.leftBlinker == cs.rightBlinker:
       self.stop_hold = False
-    elif model_stop or (plan_valid and plan.shouldStop):
+    elif (model_stop or (plan_valid and plan.shouldStop)) and controls_engaged(sm):
       self.stop_hold = True
     if self.stop_hold or not plan_valid:
       return current_desire
@@ -143,7 +155,7 @@ class TurnIntent:
                                     maneuver_active=current_desire != log.Desire.none)
       if not signaling or cs.standstill:
         self.signal_stop_hold = False
-      if model_stop or plan.shouldStop:
+      if (model_stop or plan.shouldStop) and controls_engaged(sm):
         self.signal_stop_hold = True
       if (not supported or not self.steering_capable or not policy.turn_signal_guidance or
           current_desire != log.Desire.none or self.signal_stop_hold or not cc.latActive or

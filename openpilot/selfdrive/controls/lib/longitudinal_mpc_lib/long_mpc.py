@@ -61,6 +61,9 @@ MIN_X_LEAD_FACTOR = 0.5
 LEAD_T_IDXS_MODEL = np.asarray(ModelConstants.LEAD_T_IDXS, dtype=np.float64)
 MODEL_LEAD_TRAJECTORY_MAX_LEAD_BRAKE = 0.5
 MODEL_LEAD_TRAJECTORY_MAX_CLOSING_TTC = 7.0
+MODEL_LEAD_TRAJECTORY_MAX_LEAD_ACCEL = 0.3
+MODEL_LEAD_TRAJECTORY_CATCHUP_GAP_MIN = 5.0
+MODEL_LEAD_TRAJECTORY_CATCHUP_GAP_GAIN = 0.25
 
 def should_trigger_planner_fcw(lead, v_ego: float) -> bool:
   if lead is None or not lead.present or float(lead.modelProb) <= 0.9:
@@ -72,7 +75,7 @@ def should_trigger_planner_fcw(lead, v_ego: float) -> bool:
   return ttc < 4.0
 
 
-def build_model_lead_trajectory(model_lead, radar_lead, v_ego, model_v_ego=None):
+def build_model_lead_trajectory(model_lead, radar_lead, v_ego, model_v_ego=None, t_follow=None):
   if model_lead is None or radar_lead is None or not bool(getattr(radar_lead, "present", False)):
     return None
 
@@ -107,6 +110,16 @@ def build_model_lead_trajectory(model_lead, radar_lead, v_ego, model_v_ego=None)
   if (raw_lead_brake > MODEL_LEAD_TRAJECTORY_MAX_LEAD_BRAKE or
       (closing_speed > 0.75 and ttc < MODEL_LEAD_TRAJECTORY_MAX_CLOSING_TTC)):
     return None
+
+  # The model horizon underestimates how far an accelerating lead pulls away,
+  # so planning against it holds a gap that is already too large. Once the gap
+  # is well past the desired follow distance, use the raw-lead path to catch up.
+  if raw_accel > MODEL_LEAD_TRAJECTORY_MAX_LEAD_ACCEL:
+    t_follow = get_T_FOLLOW() if t_follow is None else t_follow
+    catchup_gap = max(MODEL_LEAD_TRAJECTORY_CATCHUP_GAP_MIN, MODEL_LEAD_TRAJECTORY_CATCHUP_GAP_GAIN * float(v_ego))
+    desired_distance = get_safe_obstacle_distance(float(v_ego), t_follow) - get_stopped_equivalence_factor(raw_v_lead)
+    if raw_d_rel > desired_distance + catchup_gap:
+      return None
 
   x_lead_traj = raw_d_rel + (model_x - model_x[0])
   v_lead_traj = raw_v_lead + (model_v - model_v[0])
@@ -511,9 +524,9 @@ class LongitudinalMpc:
     lead_xv = np.column_stack((x_lead_traj, v_lead_traj))
     return lead_xv
 
-  def process_lead(self, lead, model_lead=None, *, model_v_ego=None):
+  def process_lead(self, lead, model_lead=None, *, model_v_ego=None, t_follow=None):
     v_ego = self.x0[1]
-    model_path = build_model_lead_trajectory(model_lead, lead, v_ego, model_v_ego)
+    model_path = build_model_lead_trajectory(model_lead, lead, v_ego, model_v_ego, t_follow)
     if model_path is not None:
       return model_path
     if lead is not None and lead.present:
@@ -546,8 +559,10 @@ class LongitudinalMpc:
     model_leads = getattr(modelV2, "leadsV3", ()) if modelV2 is not None else ()
     velocity = getattr(getattr(modelV2, 'velocity', None), 'x', ()) if modelV2 is not None else ()
     model_v_ego = velocity[0] if len(velocity) else None
-    lead_xv_0 = self.process_lead(radarstate.leadOne, model_leads[0] if len(model_leads) > 0 else None, model_v_ego=model_v_ego)
-    lead_xv_1 = self.process_lead(radarstate.leadTwo, model_leads[1] if len(model_leads) > 1 else None, model_v_ego=model_v_ego)
+    lead_xv_0 = self.process_lead(radarstate.leadOne, model_leads[0] if len(model_leads) > 0 else None, model_v_ego=model_v_ego,
+                                  t_follow=t_follow)
+    lead_xv_1 = self.process_lead(radarstate.leadTwo, model_leads[1] if len(model_leads) > 1 else None, model_v_ego=model_v_ego,
+                                  t_follow=t_follow)
 
     # To estimate a safe distance from a moving lead, we calculate how much stopping
     # distance that lead needs as a minimum. We can add that to the current distance

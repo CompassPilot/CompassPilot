@@ -41,7 +41,7 @@ class DestinationAvailability:
   request_revision: str | None = None
 
 
-RAIL = ((Destination.STAR, "StarPilot"), (Destination.DEVICE, "Device"), (Destination.NETWORK, "Network"),
+RAIL = ((Destination.STAR, "CompassPilot"), (Destination.DEVICE, "Device"), (Destination.NETWORK, "Network"),
         (Destination.BLUETOOTH, "Bluetooth"), (Destination.TOGGLES, "Toggles"), (Destination.SOFTWARE, "Software"),
         (Destination.DEVELOPER, "Developer"))
 TILES = ((Destination.SOUNDS, "Sounds & Alerts", "sound"), (Destination.DRIVING_MODEL, "Driving Model", "aicar"),

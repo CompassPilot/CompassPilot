@@ -969,6 +969,9 @@ class SafetyTest(SafetyTestBase):
             # No point in comparing to ALLOUTPUT which allows all messages
             if attr.startswith('TestAllOutput'):
               continue
+            # Rivian stock, longitudinal and Extreme-harness variants intentionally share messages
+            if attr.startswith('TestRivian') and current_test.startswith('TestRivian'):
+              continue
             if attr.startswith('TestToyota') and current_test.startswith('TestToyota'):
               continue
             if attr.startswith('TestSubaruGen') and current_test.startswith('TestSubaruGen'):
@@ -1008,6 +1011,12 @@ class SafetyTest(SafetyTestBase):
             if attr.startswith('TestHonda'):
               # exceptions for common msgs across different hondas
               tx = list(filter(lambda m: m[0] not in [0x1FA, 0x30C, 0x33D, 0x33DB], tx))
+
+            # Rivian Extreme-harness angle control and Hyundai CAN-FD alternate
+            # LKAS steering intentionally share these bus-0 addresses.
+            if ((current_test.startswith('TestRivianAngle') and attr.startswith('TestHyundaiCanfd')) or
+                (attr.startswith('TestRivianAngle') and current_test.startswith('TestHyundaiCanfd'))):
+              tx = list(filter(lambda m: [m[0], m[1]] not in ([0x100, 0], [0x110, 0]), tx))
 
             if attr.startswith('TestHyundaiLongitudinal'):
               # exceptions for common msgs across different Hyundai CAN platforms
