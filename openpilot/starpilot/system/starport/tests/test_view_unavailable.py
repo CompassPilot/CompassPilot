@@ -113,15 +113,20 @@ def test_stalled_renderer_output_is_captured_before_restart(tmp_path):
     source.close()
 
 
-def test_unavailable_frame_draws_the_logo():
+def test_unavailable_frame_draws_the_logo(monkeypatch):
+  from pathlib import Path
   from openpilot.starpilot.system.starport.supervisor import Supervisor
   req = request()
   frame = Supervisor._unavailable_frame(req, 'Starting StarPilot')
   assert len(frame) == req.width * req.height * 4
-  # The logo is purple; without it the frame is only the dark background and white text.
-  pixels = memoryview(frame).cast('B')
-  purple = sum(1 for i in range(0, len(frame), 4 * 97) if pixels[i + 2] > 120 and pixels[i + 2] > pixels[i + 1] + 60)
-  assert purple > 100
+  # Brand-neutral (forks ship their own logo art): the logo must visibly change
+  # the frame compared with the same frame rendered without it.
+  exists = Path.exists
+  monkeypatch.setattr(Path, 'exists', lambda path: path.name != 'starpilot_logo.png' and exists(path))
+  without = Supervisor._unavailable_frame(req, 'Starting StarPilot')
+  assert len(without) == len(frame)
+  changed = sum(1 for i in range(0, len(frame), 4 * 97) if frame[i:i + 3] != without[i:i + 3])
+  assert changed > 100
 
 
 @pytest.mark.parametrize('cold_start_seconds', [26.0, 40.0, 59.0])
