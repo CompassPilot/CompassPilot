@@ -1492,7 +1492,8 @@ class SelfdriveD:
           (self.CP.brand == 'hyundai' and blended_stock_qualified(self.CP, marked_only=True) or
            self.CP.brand == 'subaru' and subaru_stock_qualified(self.CP, marked_only=True)) and
           not physical_cancel(CS, self.CP) and not any(physical_cancel(sample, self.CP)
-            for sample, _ in getattr(self, 'car_state_samples', ()))) and
+            for sample, _ in getattr(self, 'car_state_samples', ())) or
+          self.rivian_source_deadline_supported()) and
         CS.cruiseState.available and not CS.cruiseState.enabled and
         self.CS_prev.cruiseState.available and not self.CS_prev.cruiseState.enabled and
         all(valid and sample.cruiseState.available and not sample.cruiseState.enabled

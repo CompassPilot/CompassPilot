@@ -74,7 +74,8 @@ def test_late_can_tick_keeps_only_the_unexpired_lateral_proof(socket_timeout):
     assert not expired.latActive and not expired.longActive
     fresh = SOURCE + 40_000_000
     axis, state, command = drive(6, state_stamp=fresh, long_allowed=False, **settings('lateral_only', fresh, 4))
-    assert axis.lateralActive and command.latActive and not state.enabled and not command.longActive
+    assert axis.lateralActive and command.latActive and not state.enabled and not command.longActive, \
+      (axis.to_dict(), sd.events.names, sd.aol_fault_reason, sd.aol_authority_lost, sd.aol_axis_decision)
 
 
 @pytest.mark.parametrize('fault', ['lateral_denied', 'steer_fault'])
@@ -96,7 +97,7 @@ def test_late_tick_deferral_does_not_preserve_a_new_fault(fault):
       options['allowed'] = False
     else:
       state.steerFaultPermanent = True
-    axis, _, command = drive(5, timeout=True, state_stamp=SOURCE, offset_ns=SOURCE_AGE - 30_000_000,
+    axis, _, command = drive(5, state_stamp=SOURCE, offset_ns=SOURCE_AGE - 30_000_000,
                              long_allowed=False, observed_state=state, **options)
     assert not getattr(sd, 'aol_axis_publication_deferred', False)
     assert not axis.lateralActive and not command.latActive
