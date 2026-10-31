@@ -28,6 +28,13 @@ def marked(cp):
   return qualified(cp, marked_only=True) or harness_aol.qualified(cp, marked_only=True)
 
 
+def source_deadline_supported(cp):
+  """pandad's CAN delivery runs one 10 ms tick late roughly once a minute on
+  Rivian, aging Card's source past INTENT_MAX_AGE_NS. Like Toyota/Ford/HKG, keep
+  only the existing unexpired proof for one tick instead of a critical takeover."""
+  return marked(cp)
+
+
 def native_profile_supported(model, param):
   if model != int(structs.CarParams.SafetyModel.rivian):
     return False
