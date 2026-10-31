@@ -866,7 +866,11 @@ class SelfdriveD:
     from opendbc.car.mazda.stock_aol import qualified as qualified_mazda
     return (qualified_ioniq6(self.CP) or qualified_gm(self.CP) or source_deadline_supported(self.CP) or
             qualified_toyota(self.CP, marked_only=True) or qualified_mazda(self.CP, marked_only=True) or
-            self.ford_source_deadline_supported())
+            self.ford_source_deadline_supported() or self.rivian_source_deadline_supported())
+
+  def rivian_source_deadline_supported(self):
+    from openpilot.starpilot.car.rivian.aol import source_deadline_supported
+    return self.CP.brand == 'rivian' and source_deadline_supported(self.CP)
 
   def held_axis_override_wait(self, CS, proof, now_ns, *, fresh_successor=False):
     """Recognize an already applied override; never admit a new physical edge."""
@@ -924,6 +928,7 @@ class SelfdriveD:
       not self.enabled and not self.active and not CS.cruiseState.enabled and
       (qualified_stock_hkg(self.CP, marked_only=True) or
        (self.ford_source_deadline_supported() and (held_brake or held_gas)) or
+       self.rivian_source_deadline_supported() or
        qualified_angle_aol(self.CP, marked_only=True) and self.CP.pcmCruise and not self.CP.openpilotLongitudinalControl) and
       EventName.pcmDisable in self.events_prev and self.events.names == self.events_prev)
     user_disable = any(event.userDisable and
@@ -1063,7 +1068,7 @@ class SelfdriveD:
     from openpilot.starpilot.car.hyundai.aol import source_deadline_supported
     from openpilot.starpilot.car.toyota.aol import qualified as qualified_toyota
     if ((source_deadline_supported(self.CP) or qualified_toyota(self.CP, marked_only=True) or
-         self.ford_source_deadline_supported()) and
+         self.ford_source_deadline_supported() or self.rivian_source_deadline_supported()) and
         source == 0 and not source_valid and
         getattr(self, 'aol_expired_healthy_source', False) and
         not getattr(self, 'car_state_samples', ()) and not getattr(self, 'car_state_queue_invalid', False) and

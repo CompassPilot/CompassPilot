@@ -29,6 +29,13 @@ def _diagnostic_mask(cp):
       return (1 << 3) if (int(cp.flags) == int(recorded_flags) and
                          len(cp.safetyConfigs) == 1 and int(cp.safetyConfigs[0].safetyParam) == 0xC02 and cp.alternativeExperience == 32 and
                          qualified(cp, marked_only=True)) else 0
+    if cp.brand == 'rivian':
+      from opendbc.car.rivian import harness_aol
+      from opendbc.car.rivian.stock_aol import qualified as rivian_stock_qualified
+      # Every recorded Rivian drive (pre-Dom and Dom) latches these bus-2/bus-3
+      # IRQ load diagnostics within the first second without revoking native
+      # authority. Exempt only those on a qualified single-panda Rivian owner.
+      return (1 << 3) | (1 << 4) if (harness_aol.qualified(cp) or rivian_stock_qualified(cp)) else 0
     from opendbc.car.gm.aol import qualified_gm
     from opendbc.car.gm.values import CAR, is_volt_sdgm_profile, is_bolt_present_no_acc_pedal_profile
     if cp.brand != 'gm' or len(cp.safetyConfigs) != 1:
@@ -69,6 +76,7 @@ def blocking_fault_list(faults, cp):
     allowed = _diagnostic_mask(cp)
     named = ((log.PandaState.FaultType.interruptRateCan1, 1 << 2),
              (log.PandaState.FaultType.interruptRateCan2, 1 << 3),
+             (log.PandaState.FaultType.interruptRateCan3, 1 << 4),
              (log.PandaState.FaultType.registerDivergent, 1 << 18))
     return any(not any(fault == name and allowed & bit for name, bit in named) for fault in faults)
   except (TypeError, ValueError, OverflowError):

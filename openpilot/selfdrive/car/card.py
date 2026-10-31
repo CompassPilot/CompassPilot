@@ -1441,6 +1441,25 @@ class Car:
       self.learning_feedback_capture = None
       return None
 
+  def prewarm_feedback_capture(self):
+    """Pay _feedback_capture's lazy imports before the realtime loop when learning is on.
+
+    Imported on the first enabled receipt they stalled one Card cycle by
+    ~85-125 ms on device (~375 ms cold), long enough for Rivian's VDM to flag
+    the ACM command stream as dropped (Imps_Cmd -> accFaulted). Default OFF
+    still imports nothing.
+    """
+    try:
+      from openpilot.starpilot.lateral.learning_preferences import read_preference
+      if not read_preference(self.params, self.CP).enabled:
+        return
+      import openpilot.starpilot.flm.feedback_observation  # noqa: F401
+      import openpilot.starpilot.flm.learning_wire  # noqa: F401
+      from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
+      self._feedback_cp_sha256 = car_params_digest(self.CP)
+    except Exception:
+      cloudlog.exception("card.feedback_prewarm_failed")
+
   def _invalidate_feedback_output(self, *, assignment=False):
     capture = getattr(self, 'learning_feedback_capture', None)
     if capture is not None:
@@ -1945,6 +1964,7 @@ def main():
   car = Car.__new__(Car)
   try:
     Car.__init__(car)
+    car.prewarm_feedback_capture()
     car.card_thread()
   finally:
     if getattr(car, 'vehicle_startup', None) is not None:
