@@ -867,6 +867,31 @@ class SelfdriveD:
             qualified_toyota(self.CP, marked_only=True) or qualified_mazda(self.CP, marked_only=True) or
             self.ford_source_deadline_supported() or self.rivian_source_deadline_supported())
 
+  def log_aol_source_gap(self, kind, CS, now_ns):
+    """Diagnostic only: record the state behind a host-source-loss commIssue, once per proof."""
+    try:
+      proof = getattr(self, 'aol_published_input_proof', None)
+      key = (kind, proof[1] if proof is not None else 0)
+      if getattr(self, '_aol_source_gap_logged', None) == key:
+        return
+      self._aol_source_gap_logged = key
+      cloudlog.event('aol_source_gap', kind=kind, now_ns=int(now_ns),
+        source_ns=int(self.aol_car_state_log_ns), source_valid=bool(getattr(self, 'conditional_car_state_valid', False)),
+        expired_healthy=bool(getattr(self, 'aol_expired_healthy_source', False)),
+        samples=len(getattr(self, 'car_state_samples', ())), queue_invalid=bool(getattr(self, 'car_state_queue_invalid', False)),
+        retained_valid=bool(getattr(self, 'car_state_retained_valid', False)),
+        retained_source_ns=int(getattr(self, 'car_state_retained_source_ns', 0)),
+        last_received_ns=int(getattr(self, 'car_state_last_received_ns', 0)),
+        wait_attempted=bool(getattr(self, 'aol_event_input_wait_attempted', False)),
+        proof=None if proof is None else [proof[0] == self.aol_session_id, int(proof[1]), int(proof[2]), int(proof[3]),
+                                          bool(proof[6]), bool(proof[7]), bool(proof[8]), bool(proof[9])],
+        events=[str(name) for name in self.events.names], events_prev=[str(name) for name in self.events_prev],
+        enabled=bool(self.enabled), active=bool(self.active), lagging=bool(self.rk.lagging),
+        fault=str(getattr(self, 'aol_fault_reason', 'none')), published_fault=str(getattr(self, 'aol_published_fault_reason', 'none')),
+        gas=bool(CS.gasPressed), brake=bool(CS.brakePressed), cruise=bool(CS.cruiseState.enabled))
+    except Exception:
+      pass
+
   def rivian_source_deadline_supported(self):
     from openpilot.starpilot.car.rivian.aol import source_deadline_supported
     return self.CP.brand == 'rivian' and source_deadline_supported(self.CP)
@@ -1312,6 +1337,7 @@ class SelfdriveD:
     """Publication-time expiry withdraws commands; StateMachine owns countdown."""
     if not self.ordinary_source_availability(CS, now_ns):
       return False
+    self.log_aol_source_gap('publish_retain', CS, now_ns)
     self.aol_ordinary_source_pause = True
     self.aol_publication_retained_intent = self.aol_ordinary_source_anchor[2]
     self.events.add(EventName.commIssue)
@@ -2156,6 +2182,7 @@ class SelfdriveD:
       ordinary_availability = bool(not source_current and not lost_active_aol and not lost_permission and not upgraded and
         self.ordinary_source_availability(CS, now_ns, native))
       if ordinary_availability:
+        self.log_aol_source_gap('ordinary_availability', CS, now_ns)
         self.aol_ordinary_source_pause = True
         self.aol_publication_retained_intent = self.aol_ordinary_source_anchor[2]
         self.events.add(EventName.commIssue)
@@ -2165,6 +2192,7 @@ class SelfdriveD:
         # independent armed-LAT retention must not disable ordinary engagement.
         availability = False
       if publication_expiry and (availability or not pause) and EventName.commIssue not in self.events.names:
+        self.log_aol_source_gap('publication_expiry', CS, now_ns)
         self.events.add(EventName.commIssue)
       if availability:
         if publication_expiry:
