@@ -172,7 +172,9 @@ def retained_brake_lateral_intent(cp, cs, sm, feedback, owner, *, now_ns, produc
   from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, SAFETY_MAX_AGE_NS
   from openpilot.starpilot.aol.transport_pause import cp_identity, independent_lateral_health
   try:
-    if (not qualified(cp, marked_only=True) or not cp.openpilotLongitudinalControl or
+    # Extreme-harness owners keep the same native-first brake ordering; their
+    # native latch retains lateral through the brake when configured to.
+    if (not marked(cp) or not cp.openpilotLongitudinalControl or
         owner is None or not owner.allowed_latch or not owner.settings.enabled or owner.pause_lateral or
         feedback.cp != cp_identity(cp) or feedback.failed or feedback.paused or feedback.pending_event or
         feedback.retention_started_ns or feedback.source_retention_started_ns or
