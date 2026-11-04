@@ -42,13 +42,33 @@ def _configured_transport_native(sm, cp, session, now_ns, native=None, *, requir
     pandas = sm['pandaStates']
     if not cp.safetyConfigs or len(pandas) != len(cp.safetyConfigs):
       return None
+    long_withdrawn = _rivian_host_long_withdrawn_ahead_of_native(sm, cp, session, native, stamp) if coherent else False
     return native if all(int(p.safetyModel.raw) == int(c.safetyModel.raw) and p.safetyParam == c.safetyParam and
       p.alternativeExperience == cp.alternativeExperience and not p.safetyRxChecksInvalid and
       not p.heartbeatLost and not blocking_fault_list(p.faults, cp) and
-      (not require_longitudinal or not native.requestedLongitudinal or str(c.safetyModel) in ('silent', 'noOutput') or p.controlsAllowed)
+      (not require_longitudinal or not native.requestedLongitudinal or str(c.safetyModel) in ('silent', 'noOutput') or
+       p.controlsAllowed or long_withdrawn)
       for p, c in zip(pandas, cp.safetyConfigs, strict=True)) else None
   except (AttributeError, KeyError, IndexError, TypeError, ValueError):
     return None
+
+
+def _rivian_host_long_withdrawn_ahead_of_native(sm, cp, session, native, panda_states_ns):
+  """pandad publishes aolSafetyWire and the PandaStates it was read from 0.4 ms
+  apart; Card can receive the newer PandaStates (controls_allowed=False after ACC
+  ends) one tick before that safety wire. The older wire still reports the LONG
+  axis requested, so the latest-PandaStates LONG veto cleared the AOL latch
+  (route 80fbf9331d 895/1634 s). Waive only that LONG controls veto, only when the
+  host axis has itself already withdrawn LONG; every other check stays."""
+  try:
+    from openpilot.starpilot.car.rivian.aol import marked
+    if cp.brand != 'rivian' or not marked(cp) or not sm.seen['aolAxisState']:
+      return False
+    axis = sm['aolAxisState']
+    return bool(str(axis.sessionId) == session and not axis.desiredLongitudinal and not axis.longitudinalActive and
+                0 < int(native.sourcePandaStatesMonoTime) < panda_states_ns)
+  except (AttributeError, KeyError, IndexError, TypeError, ValueError):
+    return False
 
 
 def _healthy_transport_native(sm, cp, cs, session, now_ns, native=None, *, require_longitudinal=True):
