@@ -7,20 +7,25 @@ from openpilot.selfdrive.car.cruise import V_CRUISE_UNSET
 
 
 class RivianControllerInputs:
-  """Feed liveParameters to the Extreme-harness angle model and keep the car's
-  software set speed aligned with Card's software cruise when SLC owns it."""
+  """Feed vehicleParameters (Dom's paramsd output: angle offset, roll, steer
+  ratio, stiffness) to the Extreme-harness angle model and keep the car's
+  software set speed aligned with Card's software cruise when SLC owns it.
+
+  Angle control is open loop on the steering angle: without the learned angle
+  offset it steers by the full sensor offset (route 80fbf9331d: -2.9 deg, a
+  steady pull left once the controller hands off from torque to angle)."""
 
   def __init__(self, cp):
     self.angle_harness = bool(cp.flags & RivianFlags.ANGLE_HARNESS)
     self.longitudinal_harness = bool(cp.flags & RivianFlags.LONGITUDINAL_HARNESS)
-    self.live_parameters = messaging.sub_sock('liveParameters', conflate=True) if self.angle_harness else None
+    self.live_parameters = messaging.sub_sock('vehicleParameters', conflate=True) if self.angle_harness else None
 
   def update(self, card) -> None:
     controller = card.CI.CC
     if self.live_parameters is not None and hasattr(controller, 'update_live_params'):
       msg = messaging.recv_one_or_none(self.live_parameters)
       if msg is not None and msg.valid:
-        live = msg.liveParameters
+        live = msg.vehicleParameters
         controller.update_live_params(live.roll, live.angleOffsetDeg, live.stiffnessFactor, live.steerRatio)
 
     helper = card.v_cruise_helper
