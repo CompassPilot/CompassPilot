@@ -84,7 +84,8 @@ class HarnessChassis(Chassis):
     result.append(self.park.make_can_msg('BSM_BlindSpotIndicator_Fwd', 1, {'BSM_BlindSpotIndicator_Counter': counter}))
     return result
 
-def test_actual_harness_aol_survives_brake_ending_acc(monkeypatch, tmp_path):
+@pytest.mark.parametrize('ending', ['brake', 'stalk_cancel', 'acc_off'])
+def test_actual_harness_aol_survives_acc_ending(monkeypatch, tmp_path, ending):
   alpha = True  # the recorded car runs openpilot longitudinal through the harness
   from opendbc.safety.tests.common import make_msg
   from openpilot.cereal import messaging
@@ -326,12 +327,23 @@ def test_actual_harness_aol_survives_brake_ending_acc(monkeypatch, tmp_path):
       for _ in range(35):
         row = step(feature=1)
       assert row['latch'] and row['host_enabled'] and row['cc_lat'] and abs(row['torque']) > 0
-      # Brake is independent 50 Hz CAN. Observe its actual parsed press before
-      # dropping the 100 Hz ACM feature, avoiding a synthetic cancel-before-brake.
-      for _ in range(2):
-        row = step(feature=1, brake=True)
-      for _ in range(18):
-        row = step(brake=True)
+      if ending == 'brake':
+        # Brake is independent 50 Hz CAN. Observe its actual parsed press before
+        # dropping the 100 Hz ACM feature, avoiding a synthetic cancel-before-brake.
+        for _ in range(2):
+          row = step(feature=1, brake=True)
+        for _ in range(18):
+          row = step(brake=True)
+      elif ending == 'stalk_cancel':
+        # Half-up stalk with ACC on cancels ACC only (VDM_UserAdasRequest), then the ACM drops.
+        for _ in range(3):
+          row = step(feature=1, cancel=True)
+        for _ in range(18):
+          row = step(cancel=_ < 5)
+      else:
+        # The ACM ends ACC without a parsed driver input (e.g. ACC's own limits).
+        for _ in range(20):
+          row = step()
       assert row['permission'] & 1, row
       assert row['latch'] and row['axis_lat'] and row['cc_lat'] and not row['cc_long'], (row['latch_reason'], row['sd_axis'])
       # Exercise the genuine release/Drive producer interval before a separate

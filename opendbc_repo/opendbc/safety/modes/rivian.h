@@ -188,6 +188,9 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
                                                            angle_steering_params)) {
       tx = false;
     }
+    if (tx) {
+      rivian_harness_aol_steer_sent(true, angle_active);
+    }
   }
 
   // Steering control
@@ -197,6 +200,9 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
 
     if (steer_torque_cmd_checks(desired_torque, steer_req, RIVIAN_STEERING_LIMITS)) {
       tx = false;
+    }
+    if (tx) {
+      rivian_harness_aol_steer_sent(false, steer_req);
     }
   }
 

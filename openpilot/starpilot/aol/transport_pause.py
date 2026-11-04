@@ -1,4 +1,5 @@
 """Reason-qualified intent retention; this module never grants an axis."""
+import sys
 from openpilot.cereal import log
 from openpilot.starpilot.aol.transport_pause_conditions import (
   AVAILABILITY_EVENTS as AVAILABILITY_EVENTS, HOST_SOURCE_AVAILABILITY_EVENTS as HOST_SOURCE_AVAILABILITY_EVENTS,
@@ -96,6 +97,19 @@ def stock_lateral_user_event(cp):
 
 class TransportPauseFeedback:
   """Card accepts pause provenance only after a healthy same-session baseline."""
+  # Diagnostic only: the source line of the most recent healthy -> failed edge.
+  last_failure_line = 0
+
+  @property
+  def failed(self):
+    return self.__dict__.get("_failed", False)
+
+  @failed.setter
+  def failed(self, value):
+    if value and not getattr(self, '_failed', False):
+      self.last_failure_line = sys._getframe(1).f_lineno
+    self._failed = value
+
   def __init__(self, cp):
     self.cp = cp_identity(cp)
     self.session = ''
@@ -229,7 +243,16 @@ class TransportPauseFeedback:
       (volkswagen_brake or physical_cancel(cs, cp) or volkswagen_cancel or
        0 < self.longitudinal_cancel_ns <= now_ns <= self.longitudinal_cancel_ns + SAFETY_MAX_AGE_NS or
        not axis.desiredLongitudinal and not axis.longitudinalActive))
-    early_long = gm or cp.brand == 'hyundai' and early_native_long_withdrawal_supported(cp) or ev9 or ford_withdrawal or ford_long or volkswagen_withdrawal
+    # Rivian: brake or the stalk ends ACC; the native LONG axis withdraws first
+    # while the latched AOL lateral grant stays, as with Ford's physical withdrawal.
+    # The panda's LONG withdrawal can lead carState's cruise-off edge by a frame, so
+    # the native LONG denial below (with a current LAT grant) is the trigger itself.
+    from openpilot.starpilot.car.rivian.aol import marked as rivian_marked
+    rivian_withdrawal = bool(cp.brand == 'rivian' and rivian_marked(cp) and cp.openpilotLongitudinalControl and
+      not cs.regenBraking and cs.cruiseState.available and not cs.doorOpen and not cs.seatbeltUnlatched and
+      not cs.vehicleSensorsInvalid and cs.gearShifter == structs.CarState.GearShifter.drive)
+    early_long = (gm or cp.brand == 'hyundai' and early_native_long_withdrawal_supported(cp) or ev9 or ford_withdrawal or ford_long or
+                  volkswagen_withdrawal or rivian_withdrawal)
     from openpilot.starpilot.car.gm.aol import f1_conventional_lateral_owner, gm_physical_pedal_withdrawal
     gm_pedal = gm_physical_pedal_withdrawal(cp, cs) and not f1_conventional_lateral_owner(cp)
     classic_brake = classic_brake_withdrawal(cp, cs)
@@ -255,7 +278,7 @@ class TransportPauseFeedback:
       not 0 < self.lateral_source_ns <= axis.sourceCarStateMonoTime <= axis.observedMonoTime <= now_ns or
       now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS or
       not cs.canValid or cs.canTimeout or cs.steerFaultTemporary or cs.steerFaultPermanent or cs.accFaulted or
-      cs.steeringDisengage or physical_cancel(cs, cp) and not (ford_withdrawal or volkswagen_withdrawal) or
+      cs.steeringDisengage or physical_cancel(cs, cp) and not (ford_withdrawal or volkswagen_withdrawal or rivian_withdrawal) or
       not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents'] or
       not 0 < int(sm.logMonoTime['onroadEvents']) <= now_ns or
       now_ns - int(sm.logMonoTime['onroadEvents']) > 1_500_000_000 or
@@ -264,7 +287,7 @@ class TransportPauseFeedback:
             (gm_pedal or classic_brake or volkswagen_brake and volkswagen_withdrawal or released_volkswagen_brake) and
             event.name == log.OnroadEvent.EventName.pedalPressed or
             volkswagen_withdrawal and event.name in (log.OnroadEvent.EventName.buttonCancel, log.OnroadEvent.EventName.pcmDisable) or
-            ford_withdrawal and event.name in (log.OnroadEvent.EventName.pedalPressed, log.OnroadEvent.EventName.pcmDisable,
+            (ford_withdrawal or rivian_withdrawal) and event.name in (log.OnroadEvent.EventName.pedalPressed, log.OnroadEvent.EventName.pcmDisable,
               log.OnroadEvent.EventName.buttonCancel)) for event in sm['onroadEvents'])):
       return None
     native = independent_lateral_health(sm, cp, cs, self.session, now_ns)
