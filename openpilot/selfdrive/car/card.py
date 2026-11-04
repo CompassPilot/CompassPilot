@@ -603,6 +603,8 @@ class Car:
                                              now_ns=now_ns, is_metric=self.is_metric,
                                              enabled=bool(host_control_enabled and can_rcv_valid and not self.params.get_bool("SafeMode")))
     consumed = self.v_cruise_helper.slc_consumed_button
+    aol_latch_before = bool(self.aol_card_intent is not None and self.aol_card_intent.allowed_latch)
+    aol_clear_context = {}
     if self.aol_card_intent is not None:
       if self.aol_process_fault_context is None:
         self.aol_process_fault_context = AolProcessFaultContext()
@@ -709,6 +711,7 @@ class Car:
             native.observedMonoTime >= preap_observation['pending_cancel_ns']):
           self._preap_cancel_echo_pending_ns = 0
         self._angle_aol_pending_since_ns = pending_since
+        aol_clear_context.update(panda_ready=angle_panda_ready, native_lost=lost, native_reset=native_reset)
         if lost:
           fault_active = True
       if (angle_aol and native is not None and native.requestedLateral and native.lateralAllowed and
@@ -724,6 +727,8 @@ class Car:
       if startup_readiness is not None:
         startup_readiness(self.sm, CS, native=native, panda_ready=angle_panda_ready,
                           now_ns=now_ns, producer=self.slc_producer_session)
+      aol_clear_context.update(transport_reset=bool(transport_reset), fault_active=fault_active, rejected=bool(rejected),
+                               rivian_brake_retained=bool(rivian_brake_retained), native=native)
       self.aol_card_intent.update(CS, fault_active=fault_active, now_ns=now_ns, native_rejection_ns=rejection_ns,
                                   standard_enabled=(host_enabled if getattr(self.aol_card_intent, 'observe_stock_engagement', False)
                                                     else host_control_enabled))
@@ -749,6 +754,8 @@ class Car:
         media_eligible=ioniq6_media_eligible(self.CP), fault_active=fault_active)
       self.observe_aol_calibration(CS, now_ns,
         host_enabled if getattr(self.aol_card_intent, 'observe_stock_engagement', False) else host_control_enabled)
+    if aol_latch_before and self.aol_card_intent is not None and not self.aol_card_intent.allowed_latch:
+      self.log_aol_latch_clear(CS, now_ns, aol_clear_context)
     self.observe_distance_personality(CS, now_ns)
     gm_claim = getattr(self, 'gm_distance_claim_tracker', None)
     if gm_claim is not None:
@@ -1025,6 +1032,35 @@ class Car:
     if 'aolAxisState' in seen and seen['aolAxisState'] and self.sm['aolAxisState'].sessionId:
       return str(self.sm['aolAxisState'].sessionId)
     return self.slc_producer_session
+
+  def log_aol_latch_clear(self, CS, now_ns: int, context: dict) -> None:
+    """Diagnostic only: name the path that ended an AOL latch (one event per clear)."""
+    try:
+      feedback = getattr(self, 'aol_transport_feedback', None)
+      native = context.pop('native', None)
+      signature = getattr(feedback, 'signature', None)
+      events = self.sm['onroadEvents'] if self.sm.seen['onroadEvents'] else []
+      cloudlog.event('aol_latch_clear', reason=str(getattr(self.aol_card_intent, 'latch_clear_reason', '')),
+        events=[str(e.name) for e in events], events_updated=bool(self.sm.updated['onroadEvents']),
+        transport=None if feedback is None else dict(failed=bool(feedback.failed), paused=bool(feedback.paused),
+          pending=bool(feedback.pending_event), session=bool(feedback.session),
+          retention=bool(feedback.retention_started_ns), source_retention=bool(feedback.source_retention_started_ns),
+          last_return=int(getattr(feedback, 'last_failure_line', 0)),
+          signature_reason=str(signature[5]) if signature is not None else ''),
+        native=None if native is None else dict(req_lat=bool(native.requestedLateral), lat_ok=bool(native.lateralAllowed),
+          req_long=bool(native.requestedLongitudinal), long_ok=bool(native.longitudinalAllowed),
+          age_ms=round((now_ns - int(native.observedMonoTime)) / 1e6, 1)),
+        axis=(dict(mode=str(self.sm['aolAxisState'].mode), fault=str(self.sm['aolAxisState'].faultReason),
+                   des_lat=bool(self.sm['aolAxisState'].desiredLateral), lat=bool(self.sm['aolAxisState'].lateralActive),
+                   long=bool(self.sm['aolAxisState'].longitudinalActive))
+              if self.sm.seen['aolAxisState'] else None),
+        cs=dict(brake=bool(CS.brakePressed), gas=bool(CS.gasPressed), cruise=bool(CS.cruiseState.enabled),
+                available=bool(CS.cruiseState.available), gear=str(CS.gearShifter),
+                steer_temp=bool(CS.steerFaultTemporary), steer_perm=bool(CS.steerFaultPermanent),
+                buttons=[(str(b.type), bool(b.pressed)) for b in CS.buttonEvents]),
+        **{k: (v if isinstance(v, (bool, int, str)) or v is None else str(v)) for k, v in context.items()})
+    except Exception:
+      cloudlog.exception('aol_latch_clear_log_failed')
 
   def observe_aol_calibration(self, CS, now_ns: int, standard_enabled: bool) -> None:
     calibration_events = None
