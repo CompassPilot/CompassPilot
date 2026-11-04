@@ -419,6 +419,62 @@ class TestRivianHarnessAOLSafety(unittest.TestCase):
     # Brake still withdraws both axes (this profile disarms AOL on brake).
     self.assertEqual(0, self._feed(feature=1, request=3, brake=True))
 
+  def test_full_up_stalk_with_acc_engaged_only_cancels_acc(self):
+    # 2026-11-03 route 97f9d501b5 4388 s: the stalk reaches UP_2 while ACM still
+    # reports ACC, and the ACM ends ACC ~40 ms later. AOL must stay latched.
+    self.assertEqual(0, self._hooks())
+    self.assertEqual(1, self._feed(feature=1))
+    self.assertEqual(1, self._feed(feature=1, user_request=1))
+    self.assertEqual(1, self._feed(feature=1, user_request=2))
+    self.assertEqual(1, self._feed(feature=0, user_request=2))
+    self.assertEqual(1, self._feed(feature=0))
+    # With ACC off, the next full-up turns AOL off.
+    self.assertEqual(0, self._feed(feature=0, user_request=2))
+    self.assertEqual(0, self._feed(feature=0, user_request=2, request=0))
+
+  def _steer(self, active):
+    angle = self.packer.make_can_msg_safety("ACM_SteeringControl", 0, {"ACM_SteeringAngleRequest": 0, "ACM_EacEnabled": int(active)})
+    torque = self.packer.make_can_msg_safety("ACM_lkaHbaCmd", 0, {"ACM_lkaStrToqReq": 0, "ACM_lkaActToi": 0})
+    return bool(self.safety.safety_tx_hook(angle)), bool(self.safety.safety_tx_hook(torque))
+
+  def test_stalk_aol_off_keeps_inflight_steering_until_host_stops(self):
+    # Route 97f9d501b5 4388 s: an immediate clear blocked five in-flight active
+    # angle frames; the ACM_SteeringControl counter gap faulted EPAS until restart.
+    for user_request in (2, 1):
+      self.assertEqual(0, self._hooks(RivianSafetyFlags.AOL_STALK_TOGGLE))
+      self._feed(feature=1)
+      self.assertEqual(1, self._feed())
+      self.assertEqual((True, True), self._steer(True))
+      self.assertEqual(1, self._feed(user_request=user_request))
+      self.assertEqual(1, self._feed(user_request=user_request))
+      self.assertEqual((True, True), self._steer(True))
+      # The host's first inactive frame completes the driver's AOL-off.
+      self.assertEqual((True, True), self._steer(False))
+      self.assertEqual(0, self._feed(user_request=user_request, request=0))
+      self.assertEqual(0, self._feed(request=0))
+      self.assertEqual((False, True), self._steer(True))
+
+  def test_stalk_aol_off_grace_is_bounded(self):
+    self.assertEqual(0, self._hooks())
+    self._feed(feature=1)
+    self.assertEqual(1, self._feed())
+    self.assertEqual((True, True), self._steer(True))
+    self.assertEqual(1, self._feed(user_request=2))
+    # 10 ms per feed: the grant ends once more than 200 ms have elapsed.
+    for _ in range(20):
+      self.assertEqual(1, self._feed(user_request=2))
+      self.assertEqual((True, True), self._steer(True))
+    self.assertEqual(0, self._feed(user_request=2))
+    self.assertEqual((False, True), self._steer(True))
+
+  def test_non_stalk_disarms_stay_immediate_while_steering(self):
+    self.assertEqual(0, self._hooks())
+    self._feed(feature=1)
+    self.assertEqual(1, self._feed())
+    self.assertEqual((True, True), self._steer(True))
+    self.assertEqual(0, self._feed(brake=True))
+    self.assertEqual((False, True), self._steer(True))
+
   def test_eps_shutdown_disarms(self):
     self.assertEqual(0, self._hooks())
     self._feed(feature=1)

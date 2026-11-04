@@ -1,7 +1,7 @@
 #pragma once
 
-// Extreme harness Always On Lateral. Physical disarm events (full-up stalk,
-// brake when configured, leaving Drive, ACM unavailable, EPS shutdown) clear
+// Extreme harness Always On Lateral. Physical disarm events (full-up stalk with
+// ACC off, brake when configured, leaving Drive, ACM unavailable, EPS shutdown) clear
 // the latch immediately. Stock ACC engagement, the deferred half-up stalk
 // toggle and the configured Drive startup arm it. A fresh host lateral request
 // re-arms only inside the same physical gates the stalk uses.
@@ -19,11 +19,56 @@ static bool rivian_harness_aol_in_drive = false;
 static bool rivian_harness_aol_driving_seen = false;
 static uint8_t rivian_harness_aol_prev_user_request = 0U;
 static bool rivian_harness_aol_requested = false;
+// A driver's stalk AOL-off arrives while the host is mid-steer. Clearing the
+// latch at once blocks the host's in-flight active angle frames; the gap in
+// ACM_SteeringControl's counter makes EPAS latch EacStatus=4 (error 7) until
+// restart (route 97f9d501b5 4388 s). Keep the grant only until the host's first
+// inactive steering frame, bounded; every other disarm stays immediate.
+#define RIVIAN_HARNESS_AOL_STALK_OFF_MAX_US 200000U
+static bool rivian_harness_aol_stalk_off_pending = false;
+static uint32_t rivian_harness_aol_stalk_off_ts = 0U;
+// Last accepted request of each steering channel (0x110 angle, 0x120 torque).
+static bool rivian_harness_aol_angle_active = false;
+static bool rivian_harness_aol_torque_active = false;
 
 static void rivian_harness_aol_clear(void) {
   rivian_harness_aol_latch = false;
   rivian_harness_aol_start_pending = false;
   rivian_harness_aol_lkas_pending = false;
+  rivian_harness_aol_stalk_off_pending = false;
+}
+
+static void rivian_harness_aol_stalk_off(void) {
+  if (rivian_harness_aol_latch && (rivian_harness_aol_angle_active || rivian_harness_aol_torque_active)) {
+    if (!rivian_harness_aol_stalk_off_pending) {
+      rivian_harness_aol_stalk_off_pending = true;
+      rivian_harness_aol_stalk_off_ts = microsecond_timer_get();
+    }
+    rivian_harness_aol_start_pending = false;
+    rivian_harness_aol_lkas_pending = false;
+  } else {
+    rivian_harness_aol_clear();
+  }
+}
+
+static void rivian_harness_aol_stalk_off_expire(void) {
+  if (rivian_harness_aol_stalk_off_pending &&
+      (safety_get_ts_elapsed(microsecond_timer_get(), rivian_harness_aol_stalk_off_ts) > RIVIAN_HARNESS_AOL_STALK_OFF_MAX_US)) {
+    rivian_harness_aol_clear();
+  }
+}
+
+// Complete a pending stalk AOL-off once the host has stopped steering on both
+// channels (the angle harness also sends a zero-request 0x120 every frame).
+static void rivian_harness_aol_steer_sent(bool angle_channel, bool active) {
+  if (angle_channel) {
+    rivian_harness_aol_angle_active = active;
+  } else {
+    rivian_harness_aol_torque_active = active;
+  }
+  if (rivian_harness_aol_stalk_off_pending && !rivian_harness_aol_angle_active && !rivian_harness_aol_torque_active) {
+    rivian_harness_aol_clear();
+  }
 }
 
 static void rivian_harness_aol_reset(void) {
@@ -35,6 +80,8 @@ static void rivian_harness_aol_reset(void) {
   rivian_harness_aol_driving_seen = false;
   rivian_harness_aol_prev_user_request = 0U;
   rivian_harness_aol_requested = false;
+  rivian_harness_aol_angle_active = false;
+  rivian_harness_aol_torque_active = false;
 }
 
 static void rivian_harness_aol_request(uint8_t mask) {
@@ -63,6 +110,7 @@ static uint8_t rivian_harness_aol_request_mask(void) {
 }
 
 static uint8_t rivian_harness_aol_permission(void) {
+  rivian_harness_aol_stalk_off_expire();
   const uint8_t request = rivian_harness_aol_request_mask();
   uint8_t permission = 0U;
   if (rivian_harness_aol_latch && rivian_harness_aol_in_drive && rivian_harness_aol_available) {
@@ -102,8 +150,10 @@ static void rivian_harness_aol_observe(const CANPacket_t *msg) {
           (rivian_harness_aol_prev_user_request != 2U) && !rivian_harness_aol_acc_enabled) {
         rivian_harness_aol_lkas_pending = true;
       }
-      if ((user_request == 2U) && (rivian_harness_aol_prev_user_request != 2U)) {
-        rivian_harness_aol_clear();
+      // Full-up with ACC engaged is the driver cancelling ACC: keep the AOL
+      // latch, as the half-up toggle does. With ACC off it turns AOL off.
+      if ((user_request == 2U) && (rivian_harness_aol_prev_user_request != 2U) && !rivian_harness_aol_acc_enabled) {
+        rivian_harness_aol_stalk_off();
       }
       rivian_harness_aol_prev_user_request = user_request;
     }
@@ -125,14 +175,19 @@ static void rivian_harness_aol_observe(const CANPacket_t *msg) {
       } else if (acc_enabled && !rivian_harness_aol_acc_enabled) {
         rivian_harness_aol_start_pending = false;
         rivian_harness_aol_lkas_pending = false;
+        rivian_harness_aol_stalk_off_pending = false;
         rivian_harness_aol_latch = true;
       } else if (rivian_harness_aol_start_pending && rivian_harness_aol_in_drive) {
         rivian_harness_aol_start_pending = false;
         rivian_harness_aol_latch = true;
       } else if (rivian_harness_aol_lkas_pending) {
         // Resolve the deferred half-up request on the next 100 Hz ACM_Status message.
-        rivian_harness_aol_latch = !rivian_harness_aol_latch;
         rivian_harness_aol_lkas_pending = false;
+        if (rivian_harness_aol_latch) {
+          rivian_harness_aol_stalk_off();
+        } else {
+          rivian_harness_aol_latch = true;
+        }
       } else {
       }
       rivian_harness_aol_acc_enabled = acc_enabled;
