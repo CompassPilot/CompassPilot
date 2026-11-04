@@ -131,8 +131,9 @@ class RivianHarnessCardIntent(AolCardIntent):
     events = []
     for event in CS.buttonEvents:
       if event.type == ButtonType.altButton2:
-        # Full-up stalk (UP_2) always ends AOL, matching the native latch.
-        if event.pressed and self.allowed_latch:
+        # Full-up stalk (UP_2) ends AOL only with ACC off, matching the native
+        # latch; with ACC engaged it is the driver cancelling ACC alone.
+        if event.pressed and self.allowed_latch and not CS.cruiseState.enabled:
           self._disarm('stalk_full_up')
         self.full_up_held = bool(event.pressed)
         continue
