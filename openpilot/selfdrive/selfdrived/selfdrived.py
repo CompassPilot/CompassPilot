@@ -893,6 +893,30 @@ class SelfdriveD:
     except Exception:
       pass
 
+  def log_aol_source_disengage(self, CS, now_ns, source_ns):
+    """Diagnostic only: a late host source just force-disabled ordinary engagement.
+    Record why the ordinary keep-engaged path was not eligible (routes 9d4266c6a7
+    1421/1691/4784 s, ebf078869e 2861 s: Card carState 28-30 ms late)."""
+    try:
+      anchor = getattr(self, 'aol_ordinary_source_anchor', None)
+      companion = getattr(self, 'aol_intent_companion', None)
+      dm = self.sm['driverMonitoringState']
+      cloudlog.event('aol_source_disengage', source_age_ms=round((now_ns - int(source_ns)) / 1e6, 1) if source_ns else None,
+        last_received_age_ms=round((now_ns - int(getattr(self, 'car_state_last_received_ns', 0))) / 1e6, 1),
+        anchor=anchor is not None, anchor_has_intent=bool(anchor is not None and anchor[2] is not None),
+        long_inhibit=bool(getattr(self, 'aol_availability_long_inhibit', False)), authority_lost=bool(self.aol_authority_lost),
+        fault=str(getattr(self, 'aol_fault_reason', 'none')), published_fault=str(getattr(self, 'aol_published_fault_reason', 'none')),
+        initialized=bool(self.initialized), queue_invalid=bool(getattr(self, 'car_state_queue_invalid', False)),
+        drain_ok=bool(getattr(self, 'aol_step_intent_drain_ok', True)), drain_count=int(getattr(self, 'aol_step_intent_drain_count', 0)),
+        companion_ok=bool(companion is not None and companion.last_drain_ok), pair_future=bool(getattr(self, 'aol_selected_pair_future', False)),
+        model_checks=bool(self.sm.all_checks(['modelV2', 'extrinsicsCalibration', 'driverMonitoringState'])),
+        calibrated=bool(self.sm['extrinsicsCalibration'].calStatus == log.ExtrinsicsCalibration.Status.calibrated),
+        dm_level=int(dm.alertLevel), dm_lockout=bool(dm.lockout or dm.alwaysOnLockout),
+        events=[str(name) for name in self.events.names], enabled=bool(self.enabled), state=str(self.state_machine.state),
+        lagging=bool(self.rk.lagging), gas=bool(CS.gasPressed), brake=bool(CS.brakePressed), cruise=bool(CS.cruiseState.enabled))
+    except Exception:
+      pass
+
   def rivian_source_deadline_supported(self):
     from openpilot.starpilot.car.rivian.aol import source_deadline_supported
     return self.CP.brand == 'rivian' and source_deadline_supported(self.CP)
@@ -1424,6 +1448,8 @@ class SelfdriveD:
         source_current=False, source_expired=True, prior_lateral_active=previous.lateral_active,
         hard_fault=False, healthy_native=healthy)
       if retained:
+        if was_enabled:
+          self.log_aol_source_disengage(CS, now_ns, source_ns)
         self.aol_publication_retained_intent = intent
         self.aol_fault_reason = 'availabilityPause'
         self.aol_availability_long_inhibit = True
