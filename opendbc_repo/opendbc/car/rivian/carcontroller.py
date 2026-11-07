@@ -16,10 +16,14 @@ ANGLE_SPEED_HYSTERESIS = 1.0 * CV.MPH_TO_MS
 
 
 def get_longitudinal_accel(requested_accel: float, gas_pressed: bool, long_active: bool = False,
-                           v_ego: float = 0.0) -> float:
-  # Keep Rivian's command stream continuous when Panda's gas safety check
-  # disables longitudinal control before the controls process sees the pedal.
-  if gas_pressed:
+                           v_ego: float = 0.0, brake_pressed: bool = False) -> float:
+  # Keep Rivian's command stream continuous when Panda's gas or brake safety
+  # check disables longitudinal control before the controls process sees the
+  # pedal. Panda blocks every non-inactive accel then; four consecutive blocked
+  # ACM_longitudinalRequest frames on a brake-cancel made VDM report Imps_Cmd and
+  # the ACM refused ACC until restart (route f81ed036ac 2957 s). Inactive accel is
+  # always allowed, so only the frame already in flight can be dropped.
+  if gas_pressed or brake_pressed:
     return 0.0
 
   accel = requested_accel
@@ -119,7 +123,8 @@ class CarController(CarControllerBase):
     # Longitudinal control
     if self.CP.openpilotLongitudinalControl:
       if self.longitudinal_harness:
-        accel = get_longitudinal_accel(actuators.accel, CS.out.gasPressed, CC.longActive, CS.out.vEgo)
+        accel = get_longitudinal_accel(actuators.accel, CS.out.gasPressed, CC.longActive, CS.out.vEgo,
+                                       brake_pressed=CS.out.brakePressed)
         can_sends.append(create_longitudinal(self.packer, self.frame, accel, CC.enabled))
 
         # Keep the stock ACM from winding up an acceleration request which the
@@ -130,7 +135,7 @@ class CarController(CarControllerBase):
         if self.base_gen1:
           long_active = CC.enabled and CC.longActive and CS.out.gearShifter == GearShifter.drive
           accel = (float(np.clip(actuators.accel, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
-                   if long_active and not CS.out.gasPressed else 0.0)
+                   if long_active and not CS.out.gasPressed and not CS.out.brakePressed else 0.0)
         else:
           long_active = CC.enabled
           accel = float(np.clip(actuators.accel, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))

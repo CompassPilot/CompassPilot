@@ -196,6 +196,13 @@ class TestRivian:
     assert get_longitudinal_accel(-2.44, gas_pressed=True) == 0.0
     assert get_longitudinal_accel(0.07, gas_pressed=False) == 0.07
 
+  def test_brake_pedal_zeroes_stale_longitudinal_acceleration(self):
+    # Route f81ed036ac 2957 s: four blocked accel frames after a brake press
+    # made VDM report Imps_Cmd; inactive accel keeps the stream continuous.
+    assert get_longitudinal_accel(0.5, gas_pressed=False, brake_pressed=True) == 0.0
+    assert get_longitudinal_accel(-1.2, gas_pressed=False, long_active=True, v_ego=30.0, brake_pressed=True) == 0.0
+    assert get_longitudinal_accel(0.5, gas_pressed=False, brake_pressed=False) == 0.5
+
   def test_longitudinal_drag_feedforward_is_active_only_while_controlling(self):
     assert get_longitudinal_accel(0.0, gas_pressed=False, long_active=False, v_ego=8.0) == 0.0
     assert get_longitudinal_accel(0.0, gas_pressed=False, long_active=True, v_ego=8.0) == 0.17
@@ -834,7 +841,8 @@ class TestRivian:
       cruiseControl=SimpleNamespace(cancel=False),
     )
     state = SimpleNamespace(
-      out=SimpleNamespace(vEgo=10.0, vEgoRaw=10.0, gasPressed=False, gearShifter=structs.CarState.GearShifter.drive),
+      out=SimpleNamespace(vEgo=10.0, vEgoRaw=10.0, gasPressed=False, brakePressed=False,
+                          gearShifter=structs.CarState.GearShifter.drive),
       acm_lka_hba_cmd={},
       vdm_adas_status=[{"VDM_AdasDriverModeStatus": 2}],
     )
