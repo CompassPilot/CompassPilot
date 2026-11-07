@@ -203,6 +203,12 @@ class TestRivian:
     assert get_longitudinal_accel(-1.2, gas_pressed=False, long_active=True, v_ego=30.0, brake_pressed=True) == 0.0
     assert get_longitudinal_accel(0.5, gas_pressed=False, brake_pressed=False) == 0.5
 
+  def test_acc_end_zeroes_stale_longitudinal_acceleration(self):
+    # Route 190b1e92a4 266 s: the stalk ended ACC; four blocked accel frames made
+    # VDM report Imps_Cmd, which also cleared AOL and locked ACC out until restart.
+    assert get_longitudinal_accel(-0.72, gas_pressed=False, long_active=True, v_ego=30.0, cruise_engaged=False) == 0.0
+    assert get_longitudinal_accel(-0.72, gas_pressed=False, cruise_engaged=True) == -0.72
+
   def test_longitudinal_drag_feedforward_is_active_only_while_controlling(self):
     assert get_longitudinal_accel(0.0, gas_pressed=False, long_active=False, v_ego=8.0) == 0.0
     assert get_longitudinal_accel(0.0, gas_pressed=False, long_active=True, v_ego=8.0) == 0.17
@@ -842,7 +848,7 @@ class TestRivian:
     )
     state = SimpleNamespace(
       out=SimpleNamespace(vEgo=10.0, vEgoRaw=10.0, gasPressed=False, brakePressed=False,
-                          gearShifter=structs.CarState.GearShifter.drive),
+                          cruiseState=SimpleNamespace(enabled=True), gearShifter=structs.CarState.GearShifter.drive),
       acm_lka_hba_cmd={},
       vdm_adas_status=[{"VDM_AdasDriverModeStatus": 2}],
     )
