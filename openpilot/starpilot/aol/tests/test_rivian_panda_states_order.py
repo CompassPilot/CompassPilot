@@ -54,3 +54,23 @@ def test_other_brands_keep_the_latest_panda_states_veto(rivian):
   native = SimpleNamespace(sourcePandaStatesMonoTime=100)
   assert not transport_pause._rivian_host_long_withdrawn_ahead_of_native(_SM(_axis()), SimpleNamespace(brand='ford'),
                                                                         SESSION, native, 200)
+
+
+def _cs(brake=False, cruise=True):
+  return SimpleNamespace(brakePressed=brake, cruiseState=SimpleNamespace(enabled=cruise))
+
+
+@pytest.mark.parametrize('cs', [_cs(brake=True), _cs(cruise=False)])
+def test_physical_long_end_before_the_host_axis_follows_is_waived(rivian, cs):
+  # Route f81ed036ac 1029/1364 s: the panda revoked LONG on the brake (or ACC end)
+  # one tick before the host axis left combined mode.
+  native = SimpleNamespace(sourcePandaStatesMonoTime=100)
+  axis = _axis(desiredLongitudinal=True, longitudinalActive=True)
+  assert transport_pause._rivian_host_long_withdrawn_ahead_of_native(_SM(axis), rivian, SESSION, native, 200, cs)
+
+
+@pytest.mark.parametrize('cs, ps_ns', [(None, 200), (_cs(), 200), (_cs(brake=True), 100)])
+def test_host_long_still_applied_without_a_physical_end_keeps_the_veto(rivian, cs, ps_ns):
+  native = SimpleNamespace(sourcePandaStatesMonoTime=100)
+  axis = _axis(desiredLongitudinal=True, longitudinalActive=True)
+  assert not transport_pause._rivian_host_long_withdrawn_ahead_of_native(_SM(axis), rivian, SESSION, native, ps_ns, cs)
