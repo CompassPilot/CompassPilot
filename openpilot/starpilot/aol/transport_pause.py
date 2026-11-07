@@ -13,7 +13,8 @@ def cp_identity(cp):
     tuple((int(c.safetyModel.raw), int(c.safetyParam)) for c in cp.safetyConfigs))
 
 
-def _configured_transport_native(sm, cp, session, now_ns, native=None, *, require_longitudinal=True, allow_restricted_lateral=False):
+def _configured_transport_native(sm, cp, session, now_ns, native=None, *, require_longitudinal=True, allow_restricted_lateral=False,
+                                 cs=None):
   try:
     validated_here = native is None
     native = native or current_native(sm, cp, now_ns=now_ns, axis_session_id=session)
@@ -42,7 +43,7 @@ def _configured_transport_native(sm, cp, session, now_ns, native=None, *, requir
     pandas = sm['pandaStates']
     if not cp.safetyConfigs or len(pandas) != len(cp.safetyConfigs):
       return None
-    long_withdrawn = _rivian_host_long_withdrawn_ahead_of_native(sm, cp, session, native, stamp) if coherent else False
+    long_withdrawn = _rivian_host_long_withdrawn_ahead_of_native(sm, cp, session, native, stamp, cs) if coherent else False
     return native if all(int(p.safetyModel.raw) == int(c.safetyModel.raw) and p.safetyParam == c.safetyParam and
       p.alternativeExperience == cp.alternativeExperience and not p.safetyRxChecksInvalid and
       not p.heartbeatLost and not blocking_fault_list(p.faults, cp) and
@@ -53,19 +54,24 @@ def _configured_transport_native(sm, cp, session, now_ns, native=None, *, requir
     return None
 
 
-def _rivian_host_long_withdrawn_ahead_of_native(sm, cp, session, native, panda_states_ns):
+def _rivian_host_long_withdrawn_ahead_of_native(sm, cp, session, native, panda_states_ns, cs=None):
   """pandad publishes aolSafetyWire and the PandaStates it was read from 0.4 ms
   apart; Card can receive the newer PandaStates (controls_allowed=False after ACC
   ends) one tick before that safety wire. The older wire still reports the LONG
   axis requested, so the latest-PandaStates LONG veto cleared the AOL latch
   (route 80fbf9331d 895/1634 s). Waive only that LONG controls veto, only when the
-  host axis has itself already withdrawn LONG; every other check stays."""
+  host axis has itself already withdrawn LONG, or when this carState shows the
+  physical LONG end the panda just acted on (brake, or ACC already off) before the
+  host axis follows (route f81ed036ac and 2026-11-05 brake drops); every other
+  check stays."""
   try:
     from openpilot.starpilot.car.rivian.aol import marked
     if cp.brand != 'rivian' or not marked(cp) or not sm.seen['aolAxisState']:
       return False
     axis = sm['aolAxisState']
-    return bool(str(axis.sessionId) == session and not axis.desiredLongitudinal and not axis.longitudinalActive and
+    physical_long_end = bool(cs is not None and (cs.brakePressed or not cs.cruiseState.enabled))
+    return bool(str(axis.sessionId) == session and
+                (physical_long_end or not axis.desiredLongitudinal and not axis.longitudinalActive) and
                 0 < int(native.sourcePandaStatesMonoTime) < panda_states_ns)
   except (AttributeError, KeyError, IndexError, TypeError, ValueError):
     return False
@@ -76,7 +82,7 @@ def _healthy_transport_native(sm, cp, cs, session, now_ns, native=None, *, requi
     if not cs.canValid or cs.canTimeout or cs.steerFaultTemporary or cs.steerFaultPermanent:
       return None
     return _configured_transport_native(sm, cp, session, now_ns, native,
-      require_longitudinal=require_longitudinal)
+      require_longitudinal=require_longitudinal, cs=cs)
   except (AttributeError, KeyError, IndexError, TypeError, ValueError):
     return None
 
