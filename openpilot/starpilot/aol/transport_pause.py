@@ -54,25 +54,30 @@ def _configured_transport_native(sm, cp, session, now_ns, native=None, *, requir
     return None
 
 
+# One safety-wire period (10 Hz) plus scheduling margin.
+RIVIAN_PANDA_STATES_AHEAD_MAX_NS = 150_000_000
+
+
 def _rivian_host_long_withdrawn_ahead_of_native(sm, cp, session, native, panda_states_ns, cs=None):
   """pandad publishes aolSafetyWire and the PandaStates it was read from 0.4 ms
-  apart; Card can receive the newer PandaStates (controls_allowed=False after ACC
-  ends) one tick before that safety wire. The older wire still reports the LONG
-  axis requested, so the latest-PandaStates LONG veto cleared the AOL latch
-  (route 80fbf9331d 895/1634 s). Waive only that LONG controls veto, only when the
-  host axis has itself already withdrawn LONG, or when this carState shows the
-  physical LONG end the panda just acted on (brake, or ACC already off) before the
-  host axis follows (route f81ed036ac and 2026-11-05 brake drops); every other
-  check stays."""
+  apart; Card can receive that newer PandaStates (controls_allowed=False as the
+  panda ends LONG) one tick before the wire read from it. The older wire still
+  reports the LONG axis requested, so the latest-PandaStates LONG veto cleared the
+  AOL latch and selfdrived disengaged with Controls Mismatch. The panda often acts
+  before Card's CAN batch shows the cause (route 4a284f2e09 870 s: brake not yet in
+  carState); earlier drops: 80fbf9331d 895/1634 s, f81ed036ac 1029/1364 s.
+
+  Waive only that LONG controls veto, only while the PandaStates is newer than
+  the wire's own source by at most one wire period. The next wire carries that
+  same read and applies the veto through its inventory; every other check stays,
+  and Panda still blocks any LONG command meanwhile."""
   try:
     from openpilot.starpilot.car.rivian.aol import marked
     if cp.brand != 'rivian' or not marked(cp) or not sm.seen['aolAxisState']:
       return False
-    axis = sm['aolAxisState']
-    physical_long_end = bool(cs is not None and (cs.brakePressed or not cs.cruiseState.enabled))
-    return bool(str(axis.sessionId) == session and
-                (physical_long_end or not axis.desiredLongitudinal and not axis.longitudinalActive) and
-                0 < int(native.sourcePandaStatesMonoTime) < panda_states_ns)
+    source_ns = int(native.sourcePandaStatesMonoTime)
+    return bool(str(sm['aolAxisState'].sessionId) == session and
+                0 < source_ns < panda_states_ns <= source_ns + RIVIAN_PANDA_STATES_AHEAD_MAX_NS)
   except (AttributeError, KeyError, IndexError, TypeError, ValueError):
     return False
 
