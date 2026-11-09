@@ -1,8 +1,9 @@
 """Card may see the newer PandaStates one tick before the aolSafetyWire read from it.
 
-Routes 97f9d501b5 (161/521/3419 s), 14ba1ad03f (1563 s) and 80fbf9331d (895/1634 s):
-after ACC ended, the newer PandaStates (controls_allowed=False) met the older wire that
-still reported the LONG axis requested, and the latest-PandaStates LONG veto cleared AOL.
+Routes 97f9d501b5 (161/521/3419 s), 14ba1ad03f (1563 s), 80fbf9331d (895/1634 s),
+f81ed036ac (1029/1364 s) and 4a284f2e09 (870 s): as the panda ended LONG, the newer
+PandaStates (controls_allowed=False) met the older wire that still reported the LONG axis
+requested, and the latest-PandaStates LONG veto cleared AOL (Controls Mismatch).
 """
 from types import SimpleNamespace
 
@@ -32,45 +33,28 @@ def rivian(monkeypatch):
   return SimpleNamespace(brand='rivian')
 
 
-def test_newer_panda_states_after_host_long_withdrawal_is_waived(rivian):
-  native = SimpleNamespace(sourcePandaStatesMonoTime=100)
-  assert transport_pause._rivian_host_long_withdrawn_ahead_of_native(_SM(_axis()), rivian, SESSION, native, 200)
+@pytest.mark.parametrize('axis', [
+  _axis(),                                                    # host already withdrew LONG
+  _axis(desiredLongitudinal=True, longitudinalActive=True),   # 4a284f2e09 870 s: brake not yet in carState
+])
+def test_panda_states_ahead_of_its_own_wire_is_waived(rivian, axis):
+  native = SimpleNamespace(sourcePandaStatesMonoTime=100_000_000)
+  assert transport_pause._rivian_host_long_withdrawn_ahead_of_native(_SM(axis), rivian, SESSION, native, 200_000_000)
 
 
 @pytest.mark.parametrize('axis, ps_ns, seen', [
-  (_axis(desiredLongitudinal=True), 200, True),      # host still wants LONG: panda revocation must veto
-  (_axis(longitudinalActive=True), 200, True),       # host still applying LONG
-  (_axis(sessionId='other'), 200, True),             # different axis session
-  (_axis(), 100, True),                              # PandaStates is the wire's own source, not newer
-  (_axis(), 50, True),                               # PandaStates older than the wire
-  (_axis(), 200, False),                             # no axis observation
+  (_axis(sessionId='other'), 200_000_000, True),              # different axis session
+  (_axis(), 100_000_000, True),                               # PandaStates is the wire's own source, not newer
+  (_axis(), 50_000_000, True),                                # PandaStates older than the wire
+  (_axis(), 260_000_000, True),                               # more than one wire period ahead: wire missing
+  (_axis(), 200_000_000, False),                              # no axis observation
 ])
 def test_waiver_does_not_apply(rivian, axis, ps_ns, seen):
-  native = SimpleNamespace(sourcePandaStatesMonoTime=100)
+  native = SimpleNamespace(sourcePandaStatesMonoTime=100_000_000)
   assert not transport_pause._rivian_host_long_withdrawn_ahead_of_native(_SM(axis, seen), rivian, SESSION, native, ps_ns)
 
 
 def test_other_brands_keep_the_latest_panda_states_veto(rivian):
-  native = SimpleNamespace(sourcePandaStatesMonoTime=100)
+  native = SimpleNamespace(sourcePandaStatesMonoTime=100_000_000)
   assert not transport_pause._rivian_host_long_withdrawn_ahead_of_native(_SM(_axis()), SimpleNamespace(brand='ford'),
-                                                                        SESSION, native, 200)
-
-
-def _cs(brake=False, cruise=True):
-  return SimpleNamespace(brakePressed=brake, cruiseState=SimpleNamespace(enabled=cruise))
-
-
-@pytest.mark.parametrize('cs', [_cs(brake=True), _cs(cruise=False)])
-def test_physical_long_end_before_the_host_axis_follows_is_waived(rivian, cs):
-  # Route f81ed036ac 1029/1364 s: the panda revoked LONG on the brake (or ACC end)
-  # one tick before the host axis left combined mode.
-  native = SimpleNamespace(sourcePandaStatesMonoTime=100)
-  axis = _axis(desiredLongitudinal=True, longitudinalActive=True)
-  assert transport_pause._rivian_host_long_withdrawn_ahead_of_native(_SM(axis), rivian, SESSION, native, 200, cs)
-
-
-@pytest.mark.parametrize('cs, ps_ns', [(None, 200), (_cs(), 200), (_cs(brake=True), 100)])
-def test_host_long_still_applied_without_a_physical_end_keeps_the_veto(rivian, cs, ps_ns):
-  native = SimpleNamespace(sourcePandaStatesMonoTime=100)
-  axis = _axis(desiredLongitudinal=True, longitudinalActive=True)
-  assert not transport_pause._rivian_host_long_withdrawn_ahead_of_native(_SM(axis), rivian, SESSION, native, ps_ns, cs)
+                                                                        SESSION, native, 200_000_000)
