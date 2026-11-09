@@ -1023,14 +1023,20 @@ class Car:
         transport=None if feedback is None else dict(failed=bool(feedback.failed), paused=bool(feedback.paused),
           pending=bool(feedback.pending_event), session=bool(feedback.session),
           retention=bool(feedback.retention_started_ns), source_retention=bool(feedback.source_retention_started_ns),
-          last_return=int(getattr(feedback, 'last_failure_line', 0)),
+          last_return=int(getattr(feedback, 'last_failure_line', 0)), seq=int(getattr(feedback, 'sequence', 0)),
           signature_reason=str(signature[5]) if signature is not None else ''),
         native=None if native is None else dict(req_lat=bool(native.requestedLateral), lat_ok=bool(native.lateralAllowed),
           req_long=bool(native.requestedLongitudinal), long_ok=bool(native.longitudinalAllowed),
           age_ms=round((now_ns - int(native.observedMonoTime)) / 1e6, 1)),
         axis=(dict(mode=str(self.sm['aolAxisState'].mode), fault=str(self.sm['aolAxisState'].faultReason),
                    des_lat=bool(self.sm['aolAxisState'].desiredLateral), lat=bool(self.sm['aolAxisState'].lateralActive),
-                   long=bool(self.sm['aolAxisState'].longitudinalActive))
+                   long=bool(self.sm['aolAxisState'].longitudinalActive),
+                   # Freshness behind a host-stall clear (route 4a284f2e09 3415 s).
+                   age_ms=round((now_ns - int(self.sm['aolAxisState'].observedMonoTime)) / 1e6, 1),
+                   valid_left_ms=round((int(self.sm['aolAxisState'].validUntilMonoTime) - now_ns) / 1e6, 1),
+                   source_age_ms=round((now_ns - int(self.sm['aolAxisState'].sourceCarStateMonoTime)) / 1e6, 1),
+                   seq=int(self.sm['aolAxisState'].sequence), alive=bool(self.sm.alive['aolAxisState']),
+                   valid=bool(self.sm.valid['aolAxisState']))
               if self.sm.seen['aolAxisState'] else None),
         cs=dict(brake=bool(CS.brakePressed), gas=bool(CS.gasPressed), cruise=bool(CS.cruiseState.enabled),
                 available=bool(CS.cruiseState.available), gear=str(CS.gearShifter),
