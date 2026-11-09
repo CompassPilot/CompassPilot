@@ -11,6 +11,8 @@ class _SM(dict):
     super().__init__(services)
     self.seen = defaultdict(bool, {name: True for name in services})
     self.updated = defaultdict(bool)
+    self.alive = defaultdict(lambda: True)
+    self.valid = defaultdict(lambda: True)
 
 
 def _car(sm, feedback):
@@ -40,7 +42,9 @@ def test_latch_clear_event_names_reason_and_transport_failure_line(monkeypatch):
   assert not feedback.failed and feedback.last_failure_line == 0
   feedback.failed = True
   assert feedback.failed and feedback.last_failure_line > 0
-  axis = SimpleNamespace(mode='lateralOnly', faultReason='none', desiredLateral=True, lateralActive=True, longitudinalActive=False)
+  axis = SimpleNamespace(mode='lateralOnly', faultReason='none', desiredLateral=True, lateralActive=True, longitudinalActive=False,
+                         observedMonoTime=1_000_000_000 - 36_000_000, validUntilMonoTime=1_000_000_000 - 6_000_000,
+                         sourceCarStateMonoTime=1_000_000_000 - 40_000_000, sequence=7)
   native = SimpleNamespace(requestedLateral=True, lateralAllowed=True, requestedLongitudinal=False,
                            longitudinalAllowed=False, observedMonoTime=990)
   car = _car(_SM(onroadEvents=[SimpleNamespace(name='pedalPressed')], aolAxisState=axis), feedback)
@@ -51,6 +55,7 @@ def test_latch_clear_event_names_reason_and_transport_failure_line(monkeypatch):
   assert fields['transport']['failed'] and fields['transport']['last_return'] == feedback.last_failure_line
   assert fields['native'] == dict(req_lat=True, lat_ok=True, req_long=False, long_ok=False, age_ms=1000.0)
   assert fields['axis']['mode'] == 'lateralOnly' and fields['cs']['brake'] and fields['transport_reset']
+  assert fields['axis']['seq'] == 7 and fields['axis']['alive'] and fields['axis']['age_ms'] == 36.0
   assert fields['events'] == ['pedalPressed'] and fields['cs']['buttons'] == [('lkas', True)]
 
 
