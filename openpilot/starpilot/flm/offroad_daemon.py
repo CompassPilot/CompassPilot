@@ -13,6 +13,11 @@ from openpilot.cereal import messaging
 from openpilot.common.params import Params
 from openpilot.starpilot.flm.offroad_worker import OffroadWorker
 from openpilot.starpilot.flm.training_report import report_path, READ_MAX_BYTES, _report_bounded
+from openpilot.starpilot.galaxy.drive_analysis import _Incomplete
+
+# A drive the shared route reader refuses (missing segments or logs, cancelled
+# inventory) is an unavailable source like any other, not a daemon crash.
+ANALYSIS_ERRORS = (ValueError, OSError, RuntimeError, _Incomplete)
 
 
 class StatusReport:
@@ -322,7 +327,7 @@ def main():
         next_analysis = time.monotonic() + 10.0
         try:
           report.set(worker.run_once())
-        except (ValueError, OSError, RuntimeError) as error:
+        except ANALYSIS_ERRORS as error:
           traceback.print_exc()
           failure = worker.record_failure(error)
           report.set(failure if failure is not None else {'status': 'unavailable', 'reason': str(error)[:300]})
