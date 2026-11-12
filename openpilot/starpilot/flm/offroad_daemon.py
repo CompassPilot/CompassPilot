@@ -14,6 +14,11 @@ from openpilot.cereal import messaging
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from openpilot.starpilot.flm.training_report import report_path, READ_MAX_BYTES, _report_bounded
+from openpilot.starpilot.galaxy.drive_analysis import _Incomplete
+
+# A drive the shared route reader refuses (missing segments or logs, cancelled
+# inventory) is an unavailable source like any other, not a daemon crash.
+ANALYSIS_ERRORS = (ValueError, OSError, RuntimeError, _Incomplete)
 
 REVIEW_FIELDS = ('completed_route', 'vehicle', 'analysis_counts', 'recorded_tracking', 'source_sha256', 'assessment_sha256',
                 'recommendations', 'suggestions', 'suggestion_count', 'source_is_latest', 'latest_recording', 'skipped_routes',
@@ -348,7 +353,7 @@ def run_parked_analysis(worker, report):
 
   try:
     report.set(worker.run_once())
-  except (ValueError, OSError, RuntimeError) as error:
+  except ANALYSIS_ERRORS as error:
     if isinstance(error, RouteInputError):
       cloudlog.warning(
         'FLM skipped unreadable drive %s: %s; continuing with other drives',
