@@ -1,15 +1,14 @@
 """Rivian controller inputs that live outside the CAN stream."""
 
 from openpilot.cereal import messaging
-from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.rivian.values import RivianFlags
-from openpilot.selfdrive.car.cruise import V_CRUISE_UNSET
+from openpilot.starpilot.car.rivian.slc_set_speed import RivianSlcSetSpeed
 
 
 class RivianControllerInputs:
   """Feed vehicleParameters (Dom's paramsd output: angle offset, roll, steer
-  ratio, stiffness) to the Extreme-harness angle model and keep the car's
-  software set speed aligned with Card's software cruise when SLC owns it.
+  ratio, stiffness) to the Extreme-harness angle model, and let SLC own the
+  harness software SET (see slc_set_speed).
 
   Angle control is open loop on the steering angle: without the learned angle
   offset it steers by the full sensor offset (route 80fbf9331d: -2.9 deg, a
@@ -19,6 +18,7 @@ class RivianControllerInputs:
     self.angle_harness = bool(cp.flags & RivianFlags.ANGLE_HARNESS)
     self.longitudinal_harness = bool(cp.flags & RivianFlags.LONGITUDINAL_HARNESS)
     self.live_parameters = messaging.sub_sock('vehicleParameters', conflate=True) if self.angle_harness else None
+    self.slc_set_speed = RivianSlcSetSpeed()
 
   def update(self, card) -> None:
     controller = card.CI.CC
@@ -28,12 +28,10 @@ class RivianControllerInputs:
         live = msg.vehicleParameters
         controller.update_live_params(live.roll, live.angleOffsetDeg, live.stiffnessFactor, live.steerRatio)
 
-    helper = card.v_cruise_helper
+  def update_set_speed(self, card, cs, now_ns: int) -> None:
     set_cruise_speed = getattr(card.CI.CS, 'set_cruise_speed', None)
-    if (self.longitudinal_harness and callable(set_cruise_speed) and getattr(helper, 'slc_pcm', False) and
-        0 < helper.v_cruise_kph < V_CRUISE_UNSET):
-      # Rivian publishes its software-owned set speed as PCM cruise state every cycle.
-      set_cruise_speed(helper.v_cruise_kph * CV.KPH_TO_MS)
+    if self.longitudinal_harness and callable(set_cruise_speed):
+      self.slc_set_speed.update(card, cs, now_ns, set_cruise_speed)
 
 
 def update(card, cs, cc, now_ns):
@@ -41,3 +39,4 @@ def update(card, cs, cc, now_ns):
   if inputs is None:
     inputs = card._rivian_controller_inputs = RivianControllerInputs(card.CP)
   inputs.update(card)
+  inputs.update_set_speed(card, cs, now_ns)
