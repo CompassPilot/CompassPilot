@@ -103,7 +103,8 @@ def slc_runtime_settings(params, cp, environment: Mapping[str, str], *, saved_sl
   from opendbc.car.hyundai.software_cruise import selected as button_cruise_selected
   if environment.get('SLC_REPLAY_RUNTIME') != '1' and not (longitudinal_supported(cp) or button_cruise_selected(cp)):
     return replace(settings, enabled=False, display=settings.display or settings.enabled, acceptance=replace(settings.acceptance, display_only=True))
-  return settings
+  from openpilot.starpilot.car.rivian import slc_owner as rivian_slc_owner
+  return rivian_slc_owner.runtime_settings(cp, settings)
 
 
 def vision_control_enabled(params, cp, *, saved_slc: SlcSettings | None = None) -> bool:
