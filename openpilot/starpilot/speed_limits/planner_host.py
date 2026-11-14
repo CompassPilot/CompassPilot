@@ -7,6 +7,7 @@ from dataclasses import replace
 
 from openpilot.cereal import messaging
 from openpilot.cereal.services import SERVICE_LIST
+from openpilot.starpilot.car.rivian import slc_owner as rivian_slc_owner
 from openpilot.starpilot.feature_runtime import enabled as feature_enabled, slc_runtime_settings, vision_control_enabled
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.speed_limits import history
@@ -111,7 +112,7 @@ class SavedSlcLifecycle:
     accepted = runtime.history_limit
     if accepted != previous_accepted:
       self.params.put("SLCQualifiedHistory", json.loads(history.encode(accepted, time.time_ns())) if accepted is not None else {})
-    return output
+    return rivian_slc_owner.without_ceiling(self.cp, output)
 
 
 def receive_slc_events(sock):

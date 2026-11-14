@@ -100,7 +100,8 @@ def slc_runtime_settings(params, cp, environment: Mapping[str, str], *, saved_sl
   settings = read_slc_settings(params) if saved_slc is None else saved_slc
   if environment.get('SLC_REPLAY_RUNTIME') != '1' and not longitudinal_supported(cp):
     return replace(settings, enabled=False, display=settings.display or settings.enabled, acceptance=replace(settings.acceptance, display_only=True))
-  return settings
+  from openpilot.starpilot.car.rivian import slc_owner as rivian_slc_owner
+  return rivian_slc_owner.runtime_settings(cp, settings)
 
 
 def vision_control_enabled(params, cp, *, saved_slc: SlcSettings | None = None) -> bool:
