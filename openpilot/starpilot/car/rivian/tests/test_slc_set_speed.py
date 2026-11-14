@@ -130,3 +130,32 @@ def test_preview_and_stale_state_do_not_move_set(owner):
   assert slc.update(_card(sm), _cs(), t, push) is None
   sm.publish(_state(t, accepted_mph=65), t)
   assert slc.update(_card(sm), _cs(), t + 5_000_000_000, push) is None and pushed == []
+
+
+def _dashboard_state(now_ns, *, speed_mph, offset_mph, observed_ns, valid_until_ns, episode=3):
+  msg = messaging.new_message('slcState')
+  s = msg.slcState
+  s.enabled, s.displayOnly, s.sessionId, s.frameMonoTime = True, False, 'session', now_ns
+  s.observationKind, s.source, s.speedLimit, s.presentationId = 'valid', 'dashboard', speed_mph * MPH, 1
+  s.offset = offset_mph * MPH
+  s.hasPresentationAdjustedLimit, s.presentationAdjustedLimit = True, (speed_mph + offset_mph) * MPH
+  s.sourceProducerSessionId, s.sourceEpisode = 'card-producer', episode
+  s.sourceObservedMonoTime, s.sourceValidUntilMonoTime = observed_ns, valid_until_ns
+  return msg.as_reader().slcState
+
+
+@pytest.mark.parametrize('with_packet', [True, False])
+def test_engage_on_a_rivian_sign_limit_uses_cards_matching_packet(owner, with_packet):
+  # Mapd gap, ACM sign reading 55 (Dashboard source), offset 5: SET 60 on engage.
+  from opendbc.car.dashboard_speed_limit import Observation, Status
+  slc, pushed, push = owner
+  observed, expiry = NOW - 50_000_000, NOW + 950_000_000
+  sm = _SM(); sm.publish(_dashboard_state(NOW, speed_mph=55, offset_mph=5, observed_ns=observed, valid_until_ns=expiry), NOW)
+  card = _card(sm)
+  card.slc_producer_session = 'card-producer'
+  if with_packet:
+    packet = Observation(Status.VALID, 55 * MPH, observed, expiry, 3)
+    card.CI = SimpleNamespace(CS=SimpleNamespace(dashboard_limit=SimpleNamespace(observation=packet)))
+  result = slc.update(card, _cs(speed_mph=48), NOW, push)
+  # Without Card's own matching packet a dashboard presentation never sets SET.
+  assert (_mph(result) == 60) if with_packet else (result is None and pushed == [])

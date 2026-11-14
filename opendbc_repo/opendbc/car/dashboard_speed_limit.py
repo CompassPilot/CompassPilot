@@ -87,3 +87,10 @@ def hyundai_canfd_sign(speed: int, system_status: int, is_metric: bool) -> tuple
   if 1 <= speed <= 252:
     return Status.VALID, speed * (1 / 3.6 if is_metric else 0.44704)
   return (Status.ABSENT, 0.0) if speed in (0, 253) else (Status.UNKNOWN, 0.0)
+
+
+def rivian_sign(speed: int, system_status: int, is_metric: bool) -> tuple[Status, float]:
+  # ACM_tsrCmd.ACM_tsrSpdDisClsMain uses FR_CMR_02's encoding: 0 no recognition,
+  # 253 unlimited, 254/255 reserved/invalid, values in cluster units. A failed or
+  # temporarily unavailable TSR (ACM_tsrStatus 1/2) is not evidence of absence.
+  return hyundai_canfd_sign(speed, system_status, is_metric)
