@@ -58,8 +58,10 @@ class RivianSlcSetSpeed:
     is_metric = bool(getattr(card, 'is_metric', False))
     if not self.engaged:
       self.engaged, self.engage_ns = True, now_ns
-      target, _ = slc_physical.engagement_target(card.sm, None, getattr(card, 'slc_producer_session', ''), now_ns,
-                                                 after_ns=after_ns)
+      # Dashboard (ACM sign) limits only qualify against Card's own matching packet.
+      evidence = getattr(getattr(getattr(card, 'CI', None), 'CS', None), 'dashboard_limit', None)
+      target, _ = slc_physical.engagement_target(card.sm, evidence.observation if evidence is not None else None,
+                                                 getattr(card, 'slc_producer_session', ''), now_ns, after_ns=after_ns)
       self.engage_target = _rounded_mps(target, is_metric) if target is not None else None
       self.last_target = self.engage_target
     if any(b.type in CRUISE_BUTTONS for b in cs.buttonEvents):

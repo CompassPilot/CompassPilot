@@ -1,6 +1,9 @@
 import copy
+import math
+
 from opendbc.can import CANParser
 from opendbc.car import Bus, structs
+from opendbc.car.dashboard_speed_limit import Tracker as LimitTracker, parser_expiry, rivian_sign
 from opendbc.car.interfaces import CarStateBase, V_CRUISE_MAX
 from opendbc.car.rivian.carstate_ext import RivianLongitudinalState
 from opendbc.car.rivian.faults import TOI_FAULT_ALERT_FRAMES, get_steering_faults
@@ -26,6 +29,9 @@ class CarState(CarStateBase):
     self.base_gen1 = CP.flags == 0
     self.harness = bool(CP.flags & HARNESS_FLAGS)
     self.longitudinal_state = RivianLongitudinalState(CP)
+    # ACM traffic-sign recognition reaches the comma on the harness bus; SLC reads
+    # it as its Dashboard source.
+    self.dashboard_limit = LimitTracker() if CP.flags & RivianFlags.LONGITUDINAL_HARNESS else None
     # Selected at startup by the vehicle preferences owner: AOL and/or the
     # half-up stalk preference map the stalk detents to button events.
     self.stalk_controls_enabled = False
@@ -143,6 +149,8 @@ class CarState(CarStateBase):
     # the stalk detents when AOL or the half-up stalk preference owns them.
     if self.harness:
       self.longitudinal_state.update(ret, can_parsers, self.stalk_controls_enabled)
+    if self.dashboard_limit is not None:
+      self.update_dashboard_limit(cp_adas)
 
     # Messages needed by carcontroller
     self.acm_lka_hba_cmd = copy.copy(cp_cam.vl["ACM_lkaHbaCmd"])
@@ -154,6 +162,17 @@ class CarState(CarStateBase):
 
     return ret
 
+  def update_dashboard_limit(self, cp_adas) -> None:
+    tracker = self.dashboard_limit
+    if tracker is None:
+      return
+    timestamp, expiry = parser_expiry(cp_adas, "ACM_tsrCmd", "ACM_tsrSpdDisClsMain")
+    if timestamp > tracker.observation.observed_ns:
+      tsr = cp_adas.vl["ACM_tsrCmd"]
+      status, speed_mps = rivian_sign(int(tsr["ACM_tsrSpdDisClsMain"]), int(tsr["ACM_tsrStatus"]),
+                                      cp_adas.vl["Cluster"]["Cluster_Unit"] == 0)
+      tracker.update(timestamp, status, speed_mps, valid_until_ns=expiry)
+
   def set_cruise_speed(self, speed: float) -> float:
     return self.longitudinal_state.set_cruise_speed(speed)
 
@@ -161,7 +180,9 @@ class CarState(CarStateBase):
   def get_can_parsers(CP):
     parsers = {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 0),
-      Bus.adas: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 1),
+      # TSR is optional evidence: nan never lets a missing sign frame affect canValid.
+      Bus.adas: CANParser(DBC[CP.carFingerprint][Bus.pt],
+                          [("ACM_tsrCmd", math.nan)] if CP.flags & RivianFlags.LONGITUDINAL_HARNESS else [], 1),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 2),
     }
     if CP.flags & RivianFlags.LONGITUDINAL_HARNESS:
