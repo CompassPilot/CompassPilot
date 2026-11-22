@@ -10,6 +10,10 @@ from opendbc.car.rivian.values import CAR, DBC, RivianFlags
 from openpilot.cereal import messaging
 from openpilot.selfdrive.car.card import Car
 
+FORK_BRIDGE = pytest.mark.skip(reason='Rivian fork: 0x131A on bus 1 is the Extreme longitudinal harness, so this '
+                                 'hardware runs harness longitudinal and harness AOL, not base GEN1 stock AOL '
+                                 '(see test_bridge_radar_marks_the_longitudinal_harness)')
+
 
 def fingerprint(case='healthy'):
   fp = gen_empty_fingerprint()
@@ -33,6 +37,7 @@ def params(fp, alpha=False, release=False):
   return CarInterface.get_params(CAR.RIVIAN_R1, fp, [], alpha, release, False)
 
 
+@FORK_BRIDGE
 @pytest.mark.parametrize('alpha', (False, True))
 @pytest.mark.parametrize('release', (False, True))
 def test_factory_restores_observed_radar_without_changing_control_parameters(alpha, release):
@@ -47,8 +52,7 @@ def test_factory_restores_observed_radar_without_changing_control_parameters(alp
   assert before == after
 
 
-@pytest.mark.parametrize('case', ('missing_marker', 'wrong_marker_bus', 'missing_bank', 'wrong_radar_bus',
-                                  'partial_bank', 'wrong_length', 'gen2', 'angle_receiver'))
+@pytest.mark.parametrize('case', ('missing_marker', 'wrong_marker_bus'))
 @pytest.mark.parametrize('alpha', (False, True))
 @pytest.mark.parametrize('release', (False, True))
 def test_other_hardware_and_incomplete_radar_sources_stay_unavailable(case, alpha, release):
@@ -101,6 +105,7 @@ def test_existing_short_range_phantom_braking_filter_is_preserved(mode):
   assert len(result.points) == (1 if mode in (2, 3) else 0)
 
 
+@FORK_BRIDGE
 @pytest.mark.parametrize('mutation', ('gen2', 'legacy_bridge_flag',
                                       'unknown_flag', 'passive', 'fixed', 'wrong_native_word', 'multi_panda'))
 def test_observed_radar_identity_preserves_existing_aol_refusals(mutation):
@@ -138,6 +143,7 @@ def test_unknown_radar_visibility_does_not_qualify_a_configuration(visibility):
   assert not qualified(view)
 
 
+@FORK_BRIDGE
 @pytest.mark.parametrize('alpha', (False, True), ids=('stock', 'alpha'))
 def test_observed_radar_actual_aol_callers_keep_brake_reverse_and_fault_recovery(alpha, monkeypatch, tmp_path):
   from opendbc.car import structs
@@ -162,6 +168,7 @@ def test_observed_radar_actual_aol_callers_keep_brake_reverse_and_fault_recovery
   test_actual_rivian_aol_engage_brake_reverse_fault_recovery(alpha, monkeypatch, tmp_path, radar_available=True)
 
 
+@FORK_BRIDGE
 @pytest.mark.parametrize('alpha', (False, True))
 def test_sensor_presence_does_not_change_controller_packets(alpha, monkeypatch):
   assert not params(fingerprint(), alpha).radarUnavailable, 'OBSERVED_RADAR_IDENTITY_UNAVAILABLE'
@@ -210,3 +217,19 @@ def test_radar_faults_preserve_independent_lateral_without_hiding_the_alert(erro
   with monkeypatch.context() as observed:
     observed.setattr(test_radar_lateral_isolation, 'params', lambda family: cp)
     test_radar_lateral_isolation.test_radar_only_fault_keeps_lateral_for_every_port('rivian', error)
+
+
+@pytest.mark.parametrize('case', ('healthy', 'missing_bank', 'wrong_radar_bus', 'partial_bank', 'wrong_length', 'gen2', 'angle_receiver'))
+@pytest.mark.parametrize('alpha', (False, True))
+def test_bridge_radar_marks_the_longitudinal_harness(case, alpha):
+  """Fork: the harness bridge (0x131A on bus 1) supplies radar, with or without the angle box (0x1310)."""
+  cp = params(fingerprint(case), alpha)
+  assert cp.flags & RivianFlags.LONGITUDINAL_HARNESS
+  assert bool(cp.flags & RivianFlags.ANGLE_HARNESS) == (case == 'angle_receiver')
+  assert not cp.radarUnavailable and cp.alphaLongitudinalAvailable
+
+
+@pytest.mark.parametrize('case', ('healthy', 'angle_receiver'))
+def test_stock_gen1_aol_never_admits_the_harness(case):
+  from opendbc.car.rivian.stock_aol import qualified
+  assert not qualified(params(fingerprint(case)))
