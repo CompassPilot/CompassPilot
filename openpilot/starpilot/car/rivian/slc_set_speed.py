@@ -15,6 +15,7 @@ offset, with no button press. Dom's own SLC rules pick every target:
 from opendbc.car import structs
 from openpilot.selfdrive.car.cruise import slc_target_kph
 from openpilot.starpilot.speed_limits import physical_actions as slc_physical
+from openpilot.starpilot.speed_limits.acceptance import number
 
 ButtonType = structs.CarState.ButtonEvent.Type
 CRUISE_BUTTONS = (ButtonType.accelCruise, ButtonType.decelCruise)
@@ -33,7 +34,7 @@ def accepted_target(sm, now_ns: int, *, after_ns: int = 0) -> float | None:
       not state.hasAcceptedAdjustedLimit or int(state.acceptedMonoTime) <= 0 or state.acceptedIsPreview):
     return None
   target = float(state.acceptedAdjustedLimit)
-  return target if slc_physical.finite_speed(target) else None
+  return target if number(target, positive=True) else None
 
 
 class RivianSlcSetSpeed:
