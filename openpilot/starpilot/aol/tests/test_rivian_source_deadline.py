@@ -101,3 +101,63 @@ def test_late_tick_deferral_does_not_preserve_a_new_fault(fault):
                              long_allowed=False, observed_state=state, **options)
     assert not getattr(sd, 'aol_axis_publication_deferred', False)
     assert not axis.lateralActive and not command.latActive
+
+
+# Route 0000004f--c8bc2602b8, 1873.9 s: ACC + AOL (combined), the driver on the
+# gas (gasPressedOverride). Card's carState arrived 29 ms after the previous one
+# (a 28.6 ms Card cycle, 20 ms of it in can_receive). The Rivian harness keeps
+# LONG active through gas, so the one-tick deferral saw a gas sample on an active
+# LONG axis; held_axis_override_wait did not recognize the Rivian, held_gas was
+# False and selfdrived published availabilityPause + commIssue: TAKE CONTROL
+# IMMEDIATELY, ACC dropped. Like Ford/HKG/GM, the already-held override keeps
+# only the original unexpired proof for that one tick.
+@pytest.mark.parametrize('socket_timeout,fault', [(timeout, fault)
+  for fault in ('none', 'lat_denied', 'brake', 'button', 'expired')
+  for timeout in ((False,) if fault in ('brake', 'button') else (False, True))])
+def test_combined_gas_override_late_tick_keeps_only_its_original_proof(socket_timeout, fault):
+  case = fixture.IoniqAvailabilityTests(methodName='runTest')
+  with ExitStack() as cleanup:
+    cleanup.callback(case.doCleanups)
+    cleanup.enter_context(OpenpilotPrefix())
+    sd, controls, drive = case._authority_callers(True, cp=profile(), genuine_events=True)
+    assert sd.rivian_source_deadline_supported() and sd.source_deadline_deferral_supported()
+    cs = fixture.car_state()
+    cs.cruiseState.available = cs.cruiseState.enabled = True
+    for tick in range(3):
+      stamp = 10_000_000_000 + tick * 10_000_000
+      old, state, command = drive(tick, observed_state=cs, gas=True, state_stamp=stamp,
+                                  offset_ns=PUBLISHED_OFFSET if tick == 2 else 0, **settings('combined', stamp, tick + 1))
+    # Recorded: combined axis with LONG still active, carControl longActive False (gas override).
+    assert state.enabled and old.lateralActive and old.longitudinalActive
+    assert command.latActive and not command.longActive
+    assert log.OnroadEvent.EventName.gasPressedOverride in sd.events.names
+    previous = old.to_dict()
+    sd.car_state_poller = mock.Mock()
+    sd.car_state_poller.poll.return_value = []
+    changes = settings('combined', SOURCE, 3)
+    if fault == 'lat_denied':
+      changes['allowed'] = False
+    elif fault == 'brake':
+      cs.brakePressed = True
+    elif fault == 'button':
+      cs.buttonEvents = [{'type': 'cancel', 'pressed': True}]
+    held, state, command = drive(6 if fault == 'expired' else 5, timeout=socket_timeout, observed_state=cs, gas=True,
+                                 state_stamp=SOURCE, offset_ns=SOURCE_AGE - 30_000_000, **changes)
+    if fault != 'none':
+      assert not sd.aol_axis_publication_deferred
+      assert not command.latActive and not command.longActive
+      return
+    assert sd.aol_axis_publication_deferred, 'RIVIAN_GAS_OVERRIDE_LATE_TICK_NOT_DEFERRED'
+    assert held.to_dict() == previous and state.enabled
+    assert log.OnroadEvent.EventName.commIssue not in sd.events.names
+    assert log.OnroadEvent.EventName.controlsMismatch not in sd.events.names
+    assert not sd.aol_authority_lost
+    # The retained proof grants nothing past its original deadline.
+    with mock.patch('openpilot.selfdrive.controls.controlsd.time.monotonic_ns', return_value=old.validUntilMonoTime + 1):
+      expired, _ = controls.state_control()
+    assert not expired.latActive and not expired.longActive
+    # The next on-time source re-qualifies on its own; ACC and AOL stay engaged.
+    fresh = SOURCE + 40_000_000
+    axis, state, command = drive(6, observed_state=cs, gas=True, state_stamp=fresh, **settings('combined', fresh, 4))
+    assert state.enabled and axis.lateralActive and axis.longitudinalActive and command.latActive, \
+      (axis.to_dict(), sd.events.names, sd.aol_fault_reason, sd.aol_authority_lost)

@@ -947,7 +947,7 @@ class SelfdriveD:
     """Recognize an already applied override; never admit a new physical edge."""
     if (proof is None or not (qualified_ioniq6(self.CP) or qualified_gm(self.CP) or
         (self.CP.brand == 'hyundai' and self.source_deadline_deferral_supported()) or
-        self.ford_source_deadline_supported()) or not self.sm.seen['carControl'] or
+        self.ford_source_deadline_supported() or self.rivian_source_deadline_supported()) or not self.sm.seen['carControl'] or
         not self.sm.valid['carControl'] or self.sm['carControl'].longActive or
         not 0 < int(self.sm.logMonoTime['carControl']) <= now_ns or
         not fresh_successor and now_ns - int(self.sm.logMonoTime['carControl']) > INTENT_MAX_AGE_NS):
@@ -955,7 +955,8 @@ class SelfdriveD:
     previous = self.CS_prev
     # A missed socket read may retain only the original healthy receipt. This
     # recognizes an already-held override; the caller still checks its expiry.
-    retained_valid = bool((self.CP.brand == 'hyundai' or self.ford_source_deadline_supported()) and
+    retained_valid = bool((self.CP.brand == 'hyundai' or self.ford_source_deadline_supported() or
+                           self.rivian_source_deadline_supported()) and
       getattr(self, 'aol_expired_healthy_source', False) and not getattr(self, 'car_state_queue_invalid', False) and
       getattr(self, 'car_state_retained_valid', False) and getattr(self, 'car_state_retained_source_ns', 0) == proof[1])
     samples = getattr(self, 'car_state_samples', ()) or ((CS, self.conditional_car_state_valid or retained_valid),)
