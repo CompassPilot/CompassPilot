@@ -207,6 +207,14 @@ enum class LongControlState_e40f3a917d908282: uint16_t {
   STARTING,
 };
 CAPNP_DECLARE_ENUM(LongControlState, e40f3a917d908282);
+CAPNP_DECLARE_SCHEMA(ae3e44f889dc64f0);
+enum class LateralControlMode_ae3e44f889dc64f0: uint16_t {
+  INACTIVE,
+  TORQUE,
+  ANGLE,
+  TORQUE_RECOVERING,
+};
+CAPNP_DECLARE_ENUM(LateralControlMode, ae3e44f889dc64f0);
 CAPNP_DECLARE_SCHEMA(b20e386e0e0ba8d3);
 CAPNP_DECLARE_SCHEMA(cf21526ec00137dd);
 CAPNP_DECLARE_SCHEMA(d895c87c4eb03a38);
@@ -583,6 +591,8 @@ struct CarControl::Actuators {
   class Builder;
   class Pipeline;
   typedef ::capnp::schemas::LongControlState_e40f3a917d908282 LongControlState;
+
+  typedef ::capnp::schemas::LateralControlMode_ae3e44f889dc64f0 LateralControlMode;
 
 
   struct _capnpPrivate {
@@ -2572,6 +2582,8 @@ public:
 
   inline float getTorqueOutputCan() const;
 
+  inline  ::cereal::CarControl::Actuators::LateralControlMode getLateralControlMode() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -2626,6 +2638,9 @@ public:
 
   inline float getTorqueOutputCan();
   inline void setTorqueOutputCan(float value);
+
+  inline  ::cereal::CarControl::Actuators::LateralControlMode getLateralControlMode();
+  inline void setLateralControlMode( ::cereal::CarControl::Actuators::LateralControlMode value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -7346,6 +7361,20 @@ inline float CarControl::Actuators::Builder::getTorqueOutputCan() {
 inline void CarControl::Actuators::Builder::setTorqueOutputCan(float value) {
   _builder.setDataField<float>(
       ::capnp::bounded<8>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::cereal::CarControl::Actuators::LateralControlMode CarControl::Actuators::Reader::getLateralControlMode() const {
+  return _reader.getDataField< ::cereal::CarControl::Actuators::LateralControlMode>(
+      ::capnp::bounded<11>() * ::capnp::ELEMENTS);
+}
+
+inline  ::cereal::CarControl::Actuators::LateralControlMode CarControl::Actuators::Builder::getLateralControlMode() {
+  return _builder.getDataField< ::cereal::CarControl::Actuators::LateralControlMode>(
+      ::capnp::bounded<11>() * ::capnp::ELEMENTS);
+}
+inline void CarControl::Actuators::Builder::setLateralControlMode( ::cereal::CarControl::Actuators::LateralControlMode value) {
+  _builder.setDataField< ::cereal::CarControl::Actuators::LateralControlMode>(
+      ::capnp::bounded<11>() * ::capnp::ELEMENTS, value);
 }
 
 inline bool CarControl::CruiseControl::Reader::getCancel() const {
