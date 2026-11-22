@@ -1,5 +1,6 @@
 import math
 import re
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -208,6 +209,29 @@ class TestRivian:
     # VDM report Imps_Cmd, which also cleared AOL and locked ACC out until restart.
     assert get_longitudinal_accel(-0.72, gas_pressed=False, long_active=True, v_ego=30.0, cruise_engaged=False) == 0.0
     assert get_longitudinal_accel(-0.72, gas_pressed=False, cruise_engaged=True) == -0.72
+
+  def test_faster_takeoffs_raise_the_harness_ceiling_only_above_accel_max(self):
+    from opendbc.car import ACCEL_MAX_TAKEOFF
+    accel_max = CarControllerParams.ACCEL_MAX
+    # Ordinary driving (longcontrol never asks above ACCEL_MAX): unchanged 2.0 ceiling,
+    # drag feedforward included.
+    assert get_longitudinal_accel(accel_max, gas_pressed=False, long_active=True, v_ego=8.0) == accel_max
+    assert get_longitudinal_accel(1.9, gas_pressed=False, long_active=True, v_ego=8.0) == accel_max
+    assert get_longitudinal_accel(1.5, gas_pressed=False, long_active=True, v_ego=8.0) == pytest.approx(1.67)
+    # Faster Takeoffs: the command follows the request continuously up to the Panda limit.
+    assert get_longitudinal_accel(accel_max + 1e-4, gas_pressed=False, long_active=True, v_ego=8.0) == pytest.approx(accel_max + 1e-4)
+    assert get_longitudinal_accel(3.0, gas_pressed=False, long_active=True, v_ego=3.0) == pytest.approx(3.0)
+    assert get_longitudinal_accel(5.0, gas_pressed=False, long_active=True, v_ego=3.0) == ACCEL_MAX_TAKEOFF == 3.5
+    # Pedals and ACC state still send inactive accel.
+    for kwargs in ({'gas_pressed': True}, {'gas_pressed': False, 'brake_pressed': True},
+                   {'gas_pressed': False, 'cruise_engaged': False}):
+      assert get_longitudinal_accel(3.0, long_active=True, v_ego=3.0, **kwargs) == 0.0
+
+  def test_harness_takeoff_ceiling_is_within_the_panda_limit(self):
+    from opendbc.car import ACCEL_MAX_TAKEOFF
+    source = (Path(__file__).parents[3] / 'safety' / 'modes' / 'rivian.h').read_text()
+    max_accel = int(re.search(r'RIVIAN_LONG_LIMITS = \{[^}]*\.max_accel = (\d+)', source).group(1))
+    assert ACCEL_MAX_TAKEOFF * 100 <= max_accel
 
   def test_longitudinal_drag_feedforward_is_active_only_while_controlling(self):
     assert get_longitudinal_accel(0.0, gas_pressed=False, long_active=False, v_ego=8.0) == 0.0

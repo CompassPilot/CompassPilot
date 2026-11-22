@@ -31,7 +31,12 @@ def get_longitudinal_accel(requested_accel: float, gas_pressed: bool, long_activ
   accel = requested_accel
   if long_active:
     accel += float(np.interp(v_ego, CarControllerParams.ACCEL_FF_DRAG_BP, CarControllerParams.ACCEL_FF_DRAG_V))
-  return float(np.clip(accel, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
+  # Faster Takeoffs: longcontrol requests above ACCEL_MAX only with that option on,
+  # so ordinary driving keeps the 2.0 ceiling (drag feedforward included). Above it
+  # the command follows the request up to the Panda's 3.5 limit; VDM_AdasAccelLimit
+  # reports ~9.6 m/s^2 (route 0000004f--c8bc2602b8).
+  ceiling = max(CarControllerParams.ACCEL_MAX, min(float(requested_accel), ACCEL_MAX_TAKEOFF))
+  return float(np.clip(accel, CarControllerParams.ACCEL_MIN, ceiling))
 
 
 class CarController(CarControllerBase):
