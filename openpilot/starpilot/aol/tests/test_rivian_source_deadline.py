@@ -121,6 +121,18 @@ def test_combined_gas_override_late_tick_keeps_only_its_original_proof(socket_ti
     cleanup.enter_context(OpenpilotPrefix())
     sd, controls, drive = case._authority_callers(True, cp=profile(), genuine_events=True)
     assert sd.rivian_source_deadline_supported() and sd.source_deadline_deferral_supported()
+    # On the car controlsd reads selfdrived's onroadEvents, so gasPressedOverride
+    # (overrideLongitudinal) clears carControl.longActive. The shared fixture does
+    # not route them to controls; deliver selfdrived's published events here.
+    feed_controls = controls.sm.update_msgs
+
+    def with_selfdrived_events(timestamp, messages):
+      events = sd.pm.messages.get('onroadEvents')
+      messages = list(messages)
+      if events is not None:
+        messages = [m for m in messages if m.which() != 'onroadEvents'] + [events]
+      return feed_controls(timestamp, messages)
+    controls.sm.update_msgs = with_selfdrived_events
     cs = fixture.car_state()
     cs.cruiseState.available = cs.cruiseState.enabled = True
     for tick in range(3):
